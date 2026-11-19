@@ -18,6 +18,7 @@ class RancherSettings : PersistentStateComponent<RancherSettings.State> {
         var pauseWhenClosed: Boolean = false
     )
 
+    @Volatile
     private var myState = State()
 
     override fun getState(): State = myState

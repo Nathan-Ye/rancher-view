@@ -118,7 +118,13 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         settings.update(newState)
 
         val token = String(tokenField?.password ?: charArrayOf())
-        RancherTokenStore.set(newState.rancherUrl.trimEnd('/'), token)
+        val previousUrl = initial.rancherUrl.trim().trimEnd('/')
+        val newUrl = newState.rancherUrl.trimEnd('/')
+        if (previousUrl.isNotEmpty() && previousUrl != newUrl) {
+            // 地址更换后旧地址下的 Token 不再有任何用途，避免凭据库里一直残留
+            RancherTokenStore.set(previousUrl, null)
+        }
+        RancherTokenStore.set(newUrl, token)
 
         initial = newState.copy()
         initialToken = token

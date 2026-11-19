@@ -1,6 +1,7 @@
 package com.nathan.rancherview.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.ShowSettingsUtil
@@ -36,8 +37,13 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JTable
+import javax.swing.Timer
+import javax.swing.event.ChangeEvent
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
+import javax.swing.event.ListSelectionEvent
+import javax.swing.event.TableColumnModelEvent
+import javax.swing.event.TableColumnModelListener
 
 class RancherToolWindowContent(private val project: Project) : Disposable {
 
@@ -66,6 +72,9 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
     private var snapshot: NamespaceSnapshot? = null
     private var selectedName: String? = null
+
+    private val properties = PropertiesComponent.getInstance(project)
+    private val columnWidthTimers = mutableListOf<Timer>()
 
     private val listener = RancherMonitorService.Listener { state -> update(state) }
 
@@ -100,6 +109,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
     override fun dispose() {
         monitor.removeListener(listener)
+        columnWidthTimers.forEach { it.stop() }
     }
 
     private fun buildMainPanel(): JComponent {
@@ -218,12 +228,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         serviceTable.autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
         serviceTable.setShowGrid(false)
         serviceTable.intercellSpacing = Dimension(0, 0)
-        val widths = intArrayOf(190, 90, 50, 50, 45, 200, 60)
-        for (index in widths.indices) {
-            val column = serviceTable.columnModel.getColumn(index)
-            column.preferredWidth = widths[index]
-            column.minWidth = 40
-        }
+        setupColumns(serviceTable, SERVICE_WIDTH_KEY, intArrayOf(250, 90, 50, 50, 45, 200, 60))
         serviceTable.columnModel.getColumn(1).cellRenderer = ServiceStatusCellRenderer(serviceModel)
         serviceTable.selectionModel.addListSelectionListener {
             if (!it.valueIsAdjusting) updateDetail()
@@ -235,12 +240,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         podTable.autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
         podTable.setShowGrid(false)
         podTable.intercellSpacing = Dimension(0, 0)
-        val widths = intArrayOf(250, 130, 60, 70, 60, 130, 260)
-        for (index in widths.indices) {
-            val column = podTable.columnModel.getColumn(index)
-            column.preferredWidth = widths[index]
-            column.minWidth = 40
-        }
+        setupColumns(podTable, POD_WIDTH_KEY, intArrayOf(250, 130, 60, 70, 60, 130, 260))
         podTable.columnModel.getColumn(1).cellRenderer = PodStatusCellRenderer(podModel)
 
         podTable.addMouseListener(object : MouseAdapter() {
@@ -250,6 +250,45 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
                 if (row < 0) return
                 podTable.setRowSelectionInterval(row, row)
                 podModel.podAt(row)?.let { logTabs.openLog(it.name) }
+            }
+        })
+    }
+
+    private fun setupColumns(table: JBTable, key: String, defaults: IntArray) {
+        val saved = properties.getValue(key)
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            .orEmpty()
+        for (index in defaults.indices) {
+            val column = table.columnModel.getColumn(index)
+            column.preferredWidth = saved.getOrNull(index) ?: defaults[index]
+            column.minWidth = 40
+        }
+
+        lateinit var saveTimer: Timer
+        saveTimer = Timer(COLUMN_WIDTH_SAVE_DELAY) {
+            if (table.tableHeader?.resizingColumn != null) {
+                saveTimer.restart()
+                return@Timer
+            }
+            val widths = (0 until table.columnCount)
+                .joinToString(",") { table.columnModel.getColumn(it).preferredWidth.toString() }
+            properties.setValue(key, widths)
+        }.apply { isRepeats = false }
+        columnWidthTimers += saveTimer
+
+        table.columnModel.addColumnModelListener(object : TableColumnModelListener {
+            override fun columnAdded(e: TableColumnModelEvent) {}
+
+            override fun columnRemoved(e: TableColumnModelEvent) {}
+
+            override fun columnMoved(e: TableColumnModelEvent) {}
+
+            override fun columnSelectionChanged(e: ListSelectionEvent) {}
+
+            override fun columnMarginChanged(e: ChangeEvent) {
+                // JTable 自适应布局也会触发该事件，只在用户拖动表头时记录
+                if (table.tableHeader?.resizingColumn != null) saveTimer.restart()
             }
         })
     }
@@ -351,6 +390,9 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
     companion object {
         private const val SPLITTER_PROPORTION_KEY = "RancherView.ToolWindow.SplitterProportion"
+        private const val SERVICE_WIDTH_KEY = "RancherView.ServiceColumnWidths"
+        private const val POD_WIDTH_KEY = "RancherView.PodColumnWidths"
+        private const val COLUMN_WIDTH_SAVE_DELAY = 600
         private const val CARD_EMPTY = "empty"
         private const val CARD_MAIN = "main"
         private const val CARD_DETAIL_EMPTY = "detail-empty"

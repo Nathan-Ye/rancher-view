@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.util.Alarm
@@ -46,6 +47,9 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     private val failureStreaks = HashMap<String, Int>()
 
+    @Volatile
+    private var refreshQueued = false
+
     init {
         ApplicationManager.getApplication().invokeLater {
             if (!disposed) schedule(0)
@@ -65,11 +69,20 @@ class RancherMonitorService(private val project: Project) : Disposable {
     }
 
     fun refreshNow() {
+        if (isAborted()) return
+        if (busy.get()) {
+            // 请求进行中，等本轮结束后立即再刷一次
+            refreshQueued = true
+            return
+        }
+        // 取消已排队的下一轮，避免形成两条并行的轮询链
+        alarm.cancelAllRequests()
         schedule(0)
     }
 
     fun restartPolling() {
         alarm.cancelAllRequests()
+        refreshQueued = false
         failureStreaks.clear()
         publish(State(configured = settings.isConfigured()))
         if (!disposed) schedule(0)
@@ -82,14 +95,15 @@ class RancherMonitorService(private val project: Project) : Disposable {
     }
 
     private fun schedule(delayMs: Long) {
-        if (disposed) return
+        if (isAborted()) return
         alarm.addRequest({ fetchOnce() }, delayMs)
     }
 
-    private fun scheduleNext() {
-        val delay = settings.refreshSeconds * 1000L
-        schedule(delay)
+    private fun scheduleNext(settings: RancherSettings) {
+        schedule(settings.refreshSeconds * 1000L)
     }
+
+    private fun isAborted(): Boolean = disposed || project.isDisposed
 
     private fun isToolWindowVisible(): Boolean {
         val toolWindow = ToolWindowManager.getInstance(project)
@@ -98,7 +112,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
     }
 
     private fun fetchOnce() {
-        if (disposed) return
+        if (isAborted()) return
         val settings = settings
         if (settings.pauseWhenClosed && !isToolWindowVisible()) {
             schedule(PAUSED_RECHECK_MILLIS)
@@ -111,11 +125,12 @@ class RancherMonitorService(private val project: Project) : Disposable {
         val token = RancherTokenStore.get(settings.url)
         if (token.isNullOrBlank()) {
             publish(State(configured = true, error = "未配置 Rancher API Token，请在 Settings → Rancher 服务中填写"))
-            scheduleNext()
+            scheduleNext(settings)
             return
         }
         if (!busy.compareAndSet(false, true)) {
-            scheduleNext()
+            // 已有请求在跑，由它结束后统一安排下一轮
+            refreshQueued = true
             return
         }
         publish(state.copy(configured = true, loading = true))
@@ -126,20 +141,32 @@ class RancherMonitorService(private val project: Project) : Disposable {
                 clusterId = settings.clusterId,
                 namespace = settings.namespace
             )
-            handleSuccess(snapshot)
+            // 请求期间项目可能已关闭，此时不再触碰项目级服务
+            if (isAborted()) return
+            handleSuccess(snapshot, settings.notificationsEnabled)
+        } catch (e: ProcessCanceledException) {
+            throw e
         } catch (e: Exception) {
+            if (isAborted()) return
             handleError(e)
         } finally {
             busy.set(false)
-            scheduleNext()
+            if (!isAborted()) {
+                if (refreshQueued) {
+                    refreshQueued = false
+                    schedule(0)
+                } else {
+                    scheduleNext(settings)
+                }
+            }
         }
     }
 
-    private fun handleSuccess(snapshot: NamespaceSnapshot) {
+    private fun handleSuccess(snapshot: NamespaceSnapshot, notificationsEnabled: Boolean) {
         updateFailureStreaks(snapshot)
         publish(State(snapshot = snapshot, configured = true))
 
-        if (!settings.notificationsEnabled) return
+        if (!notificationsEnabled) return
 
         for (service in snapshot.services) {
             if (service.phase == DeployPhase.FAILED && failureStreaks[service.name] == FAILURE_NOTIFY_STREAK) {

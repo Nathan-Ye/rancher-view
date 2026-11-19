@@ -2,7 +2,7 @@ package com.nathan.rancherview.toolwindow
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.command.CommandProcessor
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.TextRange
 import com.intellij.ui.JBColor
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -33,6 +34,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
     private val sessions = ConcurrentHashMap<String, LogSession>()
 
     fun openLog(podName: String) {
+        val settings = project.service<RancherSettings>()
         val manager = FileEditorManager.getInstance(project)
         val existing = sessions[podName]
         if (existing != null && manager.isFileOpen(existing.virtualFile)) {
@@ -40,13 +42,16 @@ class RancherLogTabService(private val project: Project) : Disposable {
             return
         }
 
-        val virtualFile = LightVirtualFile(
+        // 会话因配置切换停止后 tab 可能还开着，复用同一个虚拟文件避免出现同名两个 tab
+        val reopened = manager.openFiles
+            .firstOrNull { it is LightVirtualFile && it.name == "$podName.log" } as? LightVirtualFile
+        val virtualFile = reopened ?: LightVirtualFile(
             "$podName.log",
             FileTypeManager.getInstance().getFileTypeByExtension("log"),
             "# 正在加载日志…"
         )
 
-        val session = LogSession(podName, virtualFile)
+        val session = LogSession(podName, virtualFile, settings.clusterId, settings.namespace)
         sessions[podName] = session
         manager.openTextEditor(OpenFileDescriptor(project, virtualFile), true)
         session.start()
@@ -59,18 +64,24 @@ class RancherLogTabService(private val project: Project) : Disposable {
 
     private inner class LogSession(
         private val podName: String,
-        val virtualFile: LightVirtualFile
-    ) : Disposable {
+        val virtualFile: LightVirtualFile,
+        private val clusterId: String,
+        private val namespace: String
+    ) {
 
-        private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
+        // 不挂父 Disposable，避免停止后的会话仍留在 Disposer 树里；生命周期由 stop() 显式释放
+        private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD)
         private val busy = AtomicBoolean(false)
         private val api = RancherApiClient()
+        private val lifecycleLock = Any()
 
         @Volatile
         private var stopped = false
 
         fun start() {
-            alarm.addRequest({ tick() }, 0)
+            synchronized(lifecycleLock) {
+                if (!stopped) alarm.addRequest({ tick() }, 0)
+            }
         }
 
         private fun tick() {
@@ -79,20 +90,26 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 stop()
                 return
             }
+            val settings = project.service<RancherSettings>()
+            // 集群或命名空间已切换，旧 Pod 名不再有效，停止轮询
+            if (settings.clusterId != clusterId || settings.namespace != namespace) {
+                stop()
+                appendNotice("# 集群或命名空间配置已切换，停止刷新该 Pod 日志")
+                return
+            }
             if (!busy.compareAndSet(false, true)) {
                 reschedule()
                 return
             }
             try {
-                setText(loadContent())
+                setText(loadContent(settings))
             } finally {
                 busy.set(false)
                 reschedule()
             }
         }
 
-        private fun loadContent(): String {
-            val settings = project.service<RancherSettings>()
+        private fun loadContent(settings: RancherSettings): String {
             if (!settings.isConfigured()) return "# 尚未配置 Rancher 服务"
             val token = RancherTokenStore.get(settings.url)
                 ?: return "# 尚未配置 Rancher API Token"
@@ -106,6 +123,8 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 )
                 val header = "# $podName · 最后 300 行 · 每 5 秒刷新 · ${TIME_FORMAT.format(LocalTime.now())}\n\n"
                 header + wrapLongLines(log)
+            } catch (e: ProcessCanceledException) {
+                throw e
             } catch (e: Exception) {
                 wrapLongLines("# 日志加载失败：${e.message}")
             }
@@ -144,10 +163,11 @@ class RancherLogTabService(private val project: Project) : Disposable {
                         textEditor.editor.contentComponent.height
                 } ?: true
 
-                WriteCommandAction.runWriteCommandAction(project) {
-                    document.setText(content)
+                CommandProcessor.getInstance().runUndoTransparentAction {
+                    ApplicationManager.getApplication().runWriteAction {
+                        document.setText(content)
+                    }
                 }
-                runCatching { FileDocumentManager.getInstance().saveDocument(document) }
 
                 editors.forEach { textEditor ->
                     val editor = textEditor.editor
@@ -189,19 +209,32 @@ class RancherLogTabService(private val project: Project) : Disposable {
             }
         }
 
+        private fun appendNotice(text: String) {
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                val document = FileDocumentManager.getInstance().getDocument(virtualFile) ?: return@invokeLater
+                CommandProcessor.getInstance().runUndoTransparentAction {
+                    ApplicationManager.getApplication().runWriteAction {
+                        document.insertString(document.textLength, "\n\n$text\n")
+                    }
+                }
+            }
+        }
+
         private fun reschedule() {
-            if (!stopped) alarm.addRequest({ tick() }, REFRESH_MILLIS)
+            synchronized(lifecycleLock) {
+                if (!stopped) alarm.addRequest({ tick() }, REFRESH_MILLIS)
+            }
         }
 
         fun stop() {
-            if (stopped) return
-            stopped = true
-            alarm.cancelAllRequests()
+            synchronized(lifecycleLock) {
+                if (stopped) return
+                stopped = true
+                alarm.cancelAllRequests()
+                alarm.dispose()
+            }
             sessions.remove(podName, this)
-        }
-
-        override fun dispose() {
-            stop()
         }
     }
 
