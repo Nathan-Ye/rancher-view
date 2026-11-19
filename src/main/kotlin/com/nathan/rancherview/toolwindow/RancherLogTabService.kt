@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.ui.JBColor
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -34,6 +35,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
     private val sessions = ConcurrentHashMap<String, LogSession>()
 
     fun openLog(podName: String) {
+        if (project.isDisposed) return
         val settings = project.service<RancherSettings>()
         val manager = FileEditorManager.getInstance(project)
         val existing = sessions[podName]
@@ -52,6 +54,8 @@ class RancherLogTabService(private val project: Project) : Disposable {
         )
 
         val session = LogSession(podName, virtualFile, settings.clusterId, settings.namespace)
+        // 挂在服务下统一管理生命周期，Alarm 也随会话一起释放
+        Disposer.register(this, session)
         sessions[podName] = session
         manager.openTextEditor(OpenFileDescriptor(project, virtualFile), true)
         session.start()
@@ -67,10 +71,10 @@ class RancherLogTabService(private val project: Project) : Disposable {
         val virtualFile: LightVirtualFile,
         private val clusterId: String,
         private val namespace: String
-    ) {
+    ) : Disposable {
 
-        // 不挂父 Disposable，避免停止后的会话仍留在 Disposer 树里；生命周期由 stop() 显式释放
-        private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD)
+        // 非 Swing 线程的 Alarm 必须挂父 Disposable，否则平台直接抛 IllegalArgumentException
+        private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
         private val busy = AtomicBoolean(false)
         private val api = RancherApiClient()
         private val lifecycleLock = Any()
@@ -231,9 +235,14 @@ class RancherLogTabService(private val project: Project) : Disposable {
             synchronized(lifecycleLock) {
                 if (stopped) return
                 stopped = true
-                alarm.cancelAllRequests()
-                alarm.dispose()
             }
+            sessions.remove(podName, this)
+            // 释放 Alarm 子节点并从 Disposer 树中摘除
+            Disposer.dispose(this)
+        }
+
+        override fun dispose() {
+            synchronized(lifecycleLock) { stopped = true }
             sessions.remove(podName, this)
         }
     }
