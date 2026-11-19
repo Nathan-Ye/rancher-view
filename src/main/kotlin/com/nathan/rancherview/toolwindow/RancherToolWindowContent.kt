@@ -182,7 +182,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         }
         val detailBody = JPanel(BorderLayout()).apply {
             isOpaque = false
-            border = JBUI.Borders.customLine(JBColor.border())
+            border = JBUI.Borders.customLine(DETAIL_BORDER)
             add(header, BorderLayout.NORTH)
             add(JBScrollPane(podTable).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
         }
@@ -400,6 +400,8 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
         private val MUTED = JBColor(Color(0x75, 0x75, 0x75), Color(0xA0, 0xA0, 0xA0))
         private val ERROR = JBColor(Color(0xC6, 0x28, 0x28), Color(0xEF, 0x9A, 0x9A))
+        // 比主题默认边框更明显的冷灰蓝，用来分开上下两栏
+        private val DETAIL_BORDER = JBColor(Color(0xB9, 0xC2, 0xCC), Color(0x5E, 0x66, 0x70))
         private val TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")
     }
 }
