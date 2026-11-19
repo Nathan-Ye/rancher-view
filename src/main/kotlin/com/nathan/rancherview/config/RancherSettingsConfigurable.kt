@@ -60,7 +60,9 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
             toolTipText = "命名空间下所有 Deployment 都会出现在服务列表中，如 test"
         }
         refreshSpinner = JSpinner(SpinnerNumberModel(state.refreshSeconds.coerceIn(3, 300), 3, 300, 1))
-        notificationsCheck = JBCheckBox("发布完成或异常时弹出通知", state.notificationsEnabled)
+        notificationsCheck = JBCheckBox("发布异常时弹出通知", state.notificationsEnabled).apply {
+            toolTipText = "异常需连续两次刷新确认后才通知，避免滚动发布淘汰旧 Pod 时的误报；发布完成不通知"
+        }
         pauseCheck = JBCheckBox("关闭工具窗后暂停刷新", state.pauseWhenClosed)
         tokenField = JBPasswordField().apply {
             text = initialToken.orEmpty()

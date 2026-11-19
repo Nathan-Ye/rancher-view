@@ -8,9 +8,6 @@ import com.nathan.rancherview.RancherView
 
 object RancherNotifications {
 
-    fun info(project: Project, title: String, content: String) =
-        show(project, title, content, NotificationType.INFORMATION)
-
     fun error(project: Project, title: String, content: String) =
         show(project, title, content, NotificationType.ERROR)
 

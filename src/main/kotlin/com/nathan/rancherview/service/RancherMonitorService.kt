@@ -44,7 +44,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
     var state: State = State(configured = settings.isConfigured())
         private set
 
-    private var previousPhases: Map<String, DeployPhase> = emptyMap()
+    private val failureStreaks = HashMap<String, Int>()
 
     init {
         ApplicationManager.getApplication().invokeLater {
@@ -70,7 +70,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     fun restartPolling() {
         alarm.cancelAllRequests()
-        previousPhases = emptyMap()
+        failureStreaks.clear()
         publish(State(configured = settings.isConfigured()))
         if (!disposed) schedule(0)
     }
@@ -136,32 +136,31 @@ class RancherMonitorService(private val project: Project) : Disposable {
     }
 
     private fun handleSuccess(snapshot: NamespaceSnapshot) {
-        val previous = previousPhases
-        previousPhases = snapshot.services.associate { it.name to it.phase }
+        updateFailureStreaks(snapshot)
         publish(State(snapshot = snapshot, configured = true))
 
-        if (previous.isEmpty() || !settings.notificationsEnabled) return
+        if (!settings.notificationsEnabled) return
 
         for (service in snapshot.services) {
-            val before = previous[service.name] ?: continue
-            if (before == service.phase) continue
-            when (service.phase) {
-                DeployPhase.READY -> if (before == DeployPhase.ROLLING) {
-                    RancherNotifications.info(
-                        project,
-                        "${service.name} 发布完成",
-                        "就绪 ${service.readyRatio} · 镜像 ${service.imageTag}"
-                    )
-                }
-                DeployPhase.FAILED -> {
-                    val failedPod = service.pods.firstOrNull { it.failed }
-                    RancherNotifications.error(
-                        project,
-                        "${service.name} 发布异常",
-                        failedPod?.let { "${it.name}：${it.status}" } ?: "服务未就绪 ${service.readyRatio}"
-                    )
-                }
-                DeployPhase.ROLLING -> Unit
+            if (service.phase == DeployPhase.FAILED && failureStreaks[service.name] == FAILURE_NOTIFY_STREAK) {
+                val failedPod = service.pods.firstOrNull { it.failed }
+                RancherNotifications.error(
+                    project,
+                    "${service.name} 发布异常",
+                    failedPod?.let { "${it.name}：${it.status}" } ?: "服务未就绪 ${service.readyRatio}"
+                )
+            }
+        }
+    }
+
+    private fun updateFailureStreaks(snapshot: NamespaceSnapshot) {
+        val names = snapshot.services.mapTo(HashSet()) { it.name }
+        failureStreaks.keys.retainAll(names)
+        for (service in snapshot.services) {
+            if (service.phase == DeployPhase.FAILED) {
+                failureStreaks[service.name] = (failureStreaks[service.name] ?: 0) + 1
+            } else {
+                failureStreaks.remove(service.name)
             }
         }
     }
@@ -186,5 +185,6 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     companion object {
         private const val PAUSED_RECHECK_MILLIS = 1_000L
+        private const val FAILURE_NOTIFY_STREAK = 2
     }
 }

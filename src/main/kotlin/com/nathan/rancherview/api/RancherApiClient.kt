@@ -164,7 +164,8 @@ class RancherApiClient {
         val terminating = metadata?.has("deletionTimestamp") == true
         val phase = status?.get("phase")?.asString.orEmpty()
 
-        val failed = failedReason != null || phase == "Failed"
+        // 正在删除的旧 Pod（滚动发布淘汰）不参与失败判定
+        val failed = !terminating && (failedReason != null || phase == "Failed")
         val displayStatus = when {
             terminating -> "Terminating"
             failedReason != null -> failedReason
