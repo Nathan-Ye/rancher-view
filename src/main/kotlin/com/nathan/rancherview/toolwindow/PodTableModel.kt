@@ -2,8 +2,14 @@ package com.nathan.rancherview.toolwindow
 
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import com.nathan.rancherview.model.PodInfo
+import java.awt.Color
 import java.awt.Component
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
+import javax.swing.Icon
 import javax.swing.JLabel
 import javax.swing.JTable
 import javax.swing.table.AbstractTableModel
@@ -60,17 +66,43 @@ class PodStatusCellRenderer(private val model: PodTableModel) : DefaultTableCell
         label.border = JBUI.Borders.empty(0, 2)
         val pod = model.podAt((table as? JBTable)?.convertRowIndexToModel(row) ?: row) ?: return label
         val color = when {
-            pod.failed -> "#E53935"
-            pod.terminating -> "#9E9E9E"
-            pod.status == "Pending" || pod.status == "ContainerCreating" -> "#F9A825"
-            pod.status == "Running" -> "#43A047"
-            else -> "#9E9E9E"
+            pod.failed -> STATUS_ERROR
+            pod.terminating -> STATUS_MUTED
+            pod.status == "Pending" || pod.status == "ContainerCreating" -> STATUS_WARN
+            pod.status == "Running" -> STATUS_OK
+            else -> STATUS_MUTED
         }
-        label.text = "<html><span style='color:$color'>●</span> ${escape(pod.status)}</html>"
-        if (!isSelected) label.foreground = table.foreground
+        label.icon = dotIcon(color)
+        label.iconTextGap = 4
+        label.text = pod.status.ifBlank { "Unknown" }
+        if (!isSelected) label.foreground = UIUtil.getTableForeground()
         return label
     }
-
-    private fun escape(text: String): String =
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 }
+
+private class DotIcon(private val color: Color) : Icon {
+
+    override fun getIconWidth(): Int = 9
+
+    override fun getIconHeight(): Int = 9
+
+    override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = color
+            g2.fillOval(x + 1, y + 1, 7, 7)
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
+private val dotIcons = HashMap<Color, Icon>()
+
+private fun dotIcon(color: Color): Icon = dotIcons.getOrPut(color) { DotIcon(color) }
+
+private val STATUS_OK = Color(0x43A047)
+private val STATUS_WARN = Color(0xF9A825)
+private val STATUS_ERROR = Color(0xE53935)
+private val STATUS_MUTED = Color(0x9E9E9E)

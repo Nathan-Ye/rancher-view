@@ -152,17 +152,20 @@ class RancherApiClient {
         val readyCount = containerStatuses.count { it.get("ready")?.asBoolean == true }
         val restarts = containerStatuses.sumOf { it.get("restartCount")?.asInt ?: 0 }
 
-        val reasons = containerStatuses.mapNotNull { container ->
-            val state = container.getAsJsonObject("state") ?: return@mapNotNull null
-            when {
-                state.has("waiting") -> state.getAsJsonObject("waiting").get("reason")?.asString
-                state.has("terminated") -> state.getAsJsonObject("terminated").get("reason")?.asString
-                else -> null
-            }
+        val states = containerStatuses.mapNotNull { it.getAsJsonObject("state") }
+        val reasons = states.mapNotNull { state ->
+            val detail = state.getAsJsonObject("waiting") ?: state.getAsJsonObject("terminated")
+            detail?.get("reason")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
         }
         val failedReason = reasons.firstOrNull { it in FAILED_REASONS }
-        val terminating = metadata?.has("deletionTimestamp") == true
-        val phase = status?.get("phase")?.asString.orEmpty()
+        val anyRunning = states.any { it.get("running")?.let { r -> !r.isJsonNull } == true }
+        val allTerminated = states.isNotEmpty() &&
+            states.all { it.get("terminated")?.let { t -> !t.isJsonNull } == true }
+        val deletionStarted = listOf("deletionTimestamp", "deletionGracePeriodSeconds")
+            .any { key -> metadata?.get(key)?.let { !it.isJsonNull } == true }
+        // 容器已全部终止却没有 reason，通常是被优雅终止的旧 Pod
+        val terminating = deletionStarted || (allTerminated && reasons.isEmpty())
+        val phase = status?.get("phase")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
 
         // 正在删除的旧 Pod（滚动发布淘汰）不参与失败判定
         val failed = !terminating && (failedReason != null || phase == "Failed")
@@ -170,7 +173,8 @@ class RancherApiClient {
             terminating -> "Terminating"
             failedReason != null -> failedReason
             reasons.isNotEmpty() -> reasons.first()
-            phase.isNotEmpty() -> phase
+            phase.isNotBlank() -> phase
+            anyRunning -> "Running"
             else -> "Unknown"
         }
 
