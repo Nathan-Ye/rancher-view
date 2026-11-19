@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<idea-plugin require-restart="false">
+    <id>com.nathan.rancherview</id>
+    <name>Rancher View</name>
+    <vendor email="nathanye404@gmail.com">Nathan Ye</vendor>
+
+    <description><![CDATA[
+        View Rancher deployment status and pod logs directly inside IntelliJ IDEA, one Rancher workload per project.
+        <br/><br/>
+        在 IntelliJ IDEA 中直接查看 Rancher 服务状态与 Pod 日志，每个项目绑定一个 Rancher 工作负载，发布后无需再切浏览器。
+
+        <h3>Features</h3>
+        <ul>
+            <li>Per-project Rancher deployment configuration (paste the dashboard URL to auto-fill)</li>
+            <li>Rollout summary: ready/updated/available replicas and current image</li>
+            <li>Pod table with status, restarts, age, node and image</li>
+            <li>Pod logs in a follow-refreshing editor tab</li>
+            <li>Status bar widget and rollout completion/failure notifications</li>
+        </ul>
+
+        <h3>Requirements</h3>
+        <ul>
+            <li>IntelliJ IDEA 2024.2 or later</li>
+            <li>Rancher API token (Rancher → Account &amp; API Keys)</li>
+        </ul>
+
+        <h3>功能特点</h3>
+        <ul>
+            <li>项目级配置：每个项目绑定一个 Rancher 工作负载，支持粘贴 dashboard 地址自动解析</li>
+            <li>发布摘要：就绪/更新/可用副本与当前镜像版本</li>
+            <li>Pod 列表：状态、重启次数、运行时长、节点、镜像</li>
+            <li>双击 Pod 在编辑器打开日志，自动跟随刷新</li>
+            <li>状态栏常驻显示就绪数，发布完成/异常时弹通知</li>
+        </ul>
+
+        <h3>运行环境</h3>
+        <ul>
+            <li>IntelliJ IDEA 2024.2 或更高版本</li>
+            <li>Rancher API Token（Rancher 右上角头像 → Account &amp; API Keys）</li>
+        </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>0.1.0</h3>
+        <ul>
+            <li>Initial version: per-project Rancher deployment status, pod table, log tab, status bar widget and rollout notifications.</li>
+            <li>首个版本：项目级 Rancher 服务状态、Pod 列表、日志 Tab、状态栏组件与发布通知。</li>
+        </ul>
+    ]]></change-notes>
+
+    <idea-version since-build="242"/>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Rancher View" anchor="right"
+                    factoryClass="com.nathan.rancherview.toolwindow.RancherToolWindowFactory"
+                    icon="/icons/rancher.svg"/>
+
+        <projectConfigurable instance="com.nathan.rancherview.config.RancherSettingsConfigurable"
+                             id="com.nathan.rancherview.settings"
+                             displayName="Rancher 服务"/>
+
+        <projectService serviceImplementation="com.nathan.rancherview.config.RancherSettings"/>
+        <projectService serviceImplementation="com.nathan.rancherview.service.RancherMonitorService"/>
+        <projectService serviceImplementation="com.nathan.rancherview.toolwindow.RancherLogTabService"/>
+
+        <statusBarWidgetFactory id="RancherViewStatus"
+                                implementation="com.nathan.rancherview.statusbar.RancherStatusBarWidgetFactory"/>
+
+        <notificationGroup id="RancherView.Notification.Group" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
