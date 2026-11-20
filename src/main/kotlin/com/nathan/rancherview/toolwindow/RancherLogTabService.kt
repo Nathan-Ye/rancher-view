@@ -16,6 +16,7 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.ui.JBColor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
@@ -43,7 +44,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         val manager = FileEditorManager.getInstance(project)
         val existing = sessions[sessionKey]
         if (existing != null && manager.isFileOpen(existing.virtualFile)) {
-            manager.openFile(existing.virtualFile, true)
+            manager.openTextEditor(OpenFileDescriptor(project, existing.virtualFile), true)
             return
         }
 
@@ -61,7 +62,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         // 挂在服务下统一管理生命周期，Alarm 也随会话一起释放
         Disposer.register(this, session)
         sessions[sessionKey] = session
-        manager.openFile(virtualFile, true)
+        manager.openTextEditor(OpenFileDescriptor(project, virtualFile), true)
         session.start()
     }
 
