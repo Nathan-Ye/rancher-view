@@ -1,19 +1,30 @@
 package com.nathan.rancherview.util
 
 import com.intellij.credentialStore.CredentialAttributes
-import com.intellij.credentialStore.Credentials
+import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
 
 object RancherTokenStore {
-    private const val SERVICE_NAME = "RancherView.API.Token"
+    private const val SUBSYSTEM = "Rancher View"
 
-    private fun attributes(url: String) = CredentialAttributes(SERVICE_NAME, url)
+    // 旧版本按固定 service + URL 作为账号存储，保留只读兼容，用户下次保存时迁移
+    private const val LEGACY_SERVICE_NAME = "RancherView.API.Token"
 
-    fun get(url: String): String? =
-        PasswordSafe.instance.get(attributes(url))?.getPasswordAsString()
+    private fun attributes(url: String): CredentialAttributes =
+        RancherCredentials.ofService(generateServiceName(SUBSYSTEM, url))
+
+    private fun legacyAttributes(url: String): CredentialAttributes =
+        RancherCredentials.ofService(LEGACY_SERVICE_NAME, url)
+
+    fun get(url: String): String? {
+        if (url.isBlank()) return null
+        val safe = PasswordSafe.instance
+        return safe.getPassword(attributes(url)) ?: safe.getPassword(legacyAttributes(url))
+    }
 
     fun set(url: String, token: String?) {
-        val credentials = token?.takeIf { it.isNotBlank() }?.let { Credentials(url, it) }
-        PasswordSafe.instance.set(attributes(url), credentials)
+        val safe = PasswordSafe.instance
+        safe.setPassword(attributes(url), token?.takeIf { it.isNotBlank() })
+        safe.set(legacyAttributes(url), null)
     }
 }

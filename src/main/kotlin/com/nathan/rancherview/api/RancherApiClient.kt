@@ -4,9 +4,9 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
-import com.intellij.util.net.HttpConfigurable
+import com.intellij.util.net.JdkProxyProvider
+import com.intellij.util.net.ProxyCredentialStore
 import com.intellij.util.net.ssl.CertificateManager
-import com.intellij.util.proxy.CommonProxy
 import com.nathan.rancherview.model.NamespaceSnapshot
 import com.nathan.rancherview.model.PodInfo
 import com.nathan.rancherview.model.ServiceInfo
@@ -14,6 +14,7 @@ import com.nathan.rancherview.util.RancherBundle
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.InetSocketAddress
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -263,16 +264,25 @@ class RancherApiClient {
 
             // 跟随 IDE 的代理设置（含 PAC 与排除规则），代理需要认证时补上凭据
             runCatching {
-                builder.proxySelector(CommonProxy.getInstance())
-                builder.proxyAuthenticator { _, response ->
-                    val http = HttpConfigurable.getInstance()
-                    val login = http.proxyLogin
-                    if (login.isNullOrBlank() || response.request.header("Proxy-Authorization") != null) {
+                builder.proxySelector(JdkProxyProvider.getInstance().proxySelector)
+                builder.proxyAuthenticator { route, response ->
+                    val address = route?.proxy?.address() as? InetSocketAddress
+                    if (address == null || response.request.header("Proxy-Authorization") != null) {
                         null
                     } else {
-                        response.request.newBuilder()
-                            .header("Proxy-Authorization", Credentials.basic(login, http.plainProxyPassword.orEmpty()))
-                            .build()
+                        val credentials = ProxyCredentialStore.getInstance()
+                            .getCredentials(address.hostString, address.port)
+                        val login = credentials?.userName
+                        if (login.isNullOrBlank()) {
+                            null
+                        } else {
+                            response.request.newBuilder()
+                                .header(
+                                    "Proxy-Authorization",
+                                    Credentials.basic(login, credentials.getPasswordAsString().orEmpty())
+                                )
+                                .build()
+                        }
                     }
                 }
             }

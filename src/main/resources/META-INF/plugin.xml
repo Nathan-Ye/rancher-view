@@ -48,6 +48,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>2.1.2</h3>
+        <ul>
+            <li>Migrated proxy, credential storage and log tab handling to the current IntelliJ Platform APIs; removed usages of APIs scheduled for removal.</li>
+            <li>代理、凭据存储与日志 Tab 改用新版平台 API，移除即将被 IDE 移除的旧接口。</li>
+        </ul>
         <h3>2.1.1</h3>
         <ul>
             <li>Connections follow the IDE proxy settings and trusted certificates; Rancher URLs are normalized (trailing /v3 removed) and validated.</li>

@@ -167,7 +167,6 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         val token = String(tokenField?.password ?: charArrayOf()).trim()
         val previousUrl = normalizedUrl(initial.rancherUrl)
         // 凭据按地址全局共享：换地址时既不删除旧地址的 Token，也不把旧 Token 写到新地址上
-        RancherTokenStore.set("", null)
         if (url.isNotEmpty()) {
             if (url == previousUrl) {
                 // 地址没变：只有用户主动清空时才删除，避免换地址又改回来后把旧 Token 删掉
