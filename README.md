@@ -1,83 +1,87 @@
 # Rancher View
 
-在 IntelliJ IDEA 中直接查看公司 Rancher 各命名空间下所有 Deployment 的运行状态与 Pod 日志，无需来回切换浏览器。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 功能
+View the status of every Deployment and the pod logs in any Rancher namespace directly inside IntelliJ IDEA — no more switching to the browser.
 
-- **命名空间切换**：工具窗左上角下拉框选择命名空间（默认 `test`），选择会自动保存；列表展示该空间下全部 Deployment 的就绪 / 更新 / 镜像 / Pod 数 / 年龄
-- **上下分栏联动**：上方服务列表，选中后下方显示该服务的概要信息和 Pod 表；分栏比例可拖动并持久化（默认 7:3）
-- **名称筛选**：工具栏搜索框输入即过滤，刷新后保留筛选词与选中行
-- **Pod 日志**：双击 Pod 在编辑器打开日志 Tab，自动折行、按级别配色（ERROR 红 / WARN 琥珀 / 堆栈红 / 时间戳灰），每 5 秒刷新；向上翻看时不会强制跳到底部；不同命名空间的日志互不影响
-- **状态栏聚合**：如 `● test 66/68`，异常时 `✖ test 64/68 · 2异常`，点击打开工具窗
-- **异常通知**：服务变为「异常」且连续两次刷新确认后弹出错误通知；发布完成不通知（正在删除的旧 Pod 不参与失败判定，避免滚动发布误报）
-- **测试连接**：配置页一键校验地址 / 集群 / 命名空间 / Token 是否可用
-- **关闭工具窗后暂停刷新**（可选）：勾选后关闭窗口即停止请求，重新打开 1 秒内自动恢复
+## Features
 
-## 环境要求
+- **Namespace switcher**: pick any namespace from the dropdown at the top-left of the tool window (defaults to `test`); the selection is remembered. The list shows ready / updated / image / pod count / age for every Deployment in that namespace.
+- **Linked panes**: service list on top, service summary and pod table below; the splitter ratio is draggable and persisted (default 7:3).
+- **Name filter**: filter as you type; the filter text and selected row survive refreshes.
+- **Pod logs**: double-click a pod to open its log in an editor tab — auto-wrapped, level-colored (ERROR red / WARN amber / stack traces red / timestamps gray) and refreshed every 5 seconds. Scrolling up does not force a jump to the bottom, and log tabs are isolated per namespace.
+- **Status bar summary**: e.g. `● test 66/68`, or `✖ test 64/68 · 2 failed` when something fails; click to open the tool window.
+- **Failure notifications**: an error notification is shown only after a service stays failed for two consecutive refreshes. Successful rollouts are not announced, and terminating pods being replaced by a rollout are not counted as failures.
+- **Test connection**: validate URL / cluster / namespace / token with one click in settings.
+- **Pause when closed** (optional): stop polling when the tool window is closed; resumes automatically within 1 second after reopening.
+- **Bilingual UI**: English and Simplified Chinese (English by default), switchable in settings and applied immediately without restarting the IDE.
 
-- IntelliJ IDEA 2024.2+（`since-build` 242）
-- 可访问 Rancher 服务地址（默认 `https://ds-oms.gree.com:8888`，可在配置页修改）
+## Requirements
 
-## 安装
+- IntelliJ IDEA 2024.2+ (`since-build` 242)
+- Network access to your Rancher endpoint (defaults to `https://ds-oms.gree.com:8888`, editable in settings)
 
-1. 下载 `build/distributions/rancher-view-2.0.0.zip`
-2. IDEA → Settings → Plugins → 齿轮 → **Install Plugin from Disk**，选择该 zip
-3. 重启 IDEA
+## Install
 
-## 配置
+1. Download `rancher-view-2.1.0.zip`
+2. IDEA → Settings → Plugins → ⚙ → **Install Plugin from Disk…**, select the zip
+3. Restart the IDE
 
-Settings → Tools → **Rancher 服务**：
+## Configuration
 
-| 配置项 | 说明 |
+Settings → Tools → **Rancher Service** (shown as “Rancher 服务” when Chinese is selected):
+
+| Option | Description |
 | --- | --- |
-| Rancher 地址 | 可粘贴 dashboard 完整地址，失焦后自动解析集群与命名空间 |
-| 集群 ID | 如 `c-m-zw299nxw` |
-| 默认命名空间 | 如 `test`，工具窗左上角可随时下拉切换；留空时使用 `test` |
-| 刷新间隔（秒） | 3–300，默认 10 |
-| 发布异常时弹出通知 | 按服务触发；异常需连续两次刷新确认，发布完成不通知 |
-| 关闭工具窗后暂停刷新 | 默认关闭 |
-| API Token | Rancher 右上角头像 → Account & API Keys 创建，建议只授权当前集群 |
+| Language | English / 中文（简体）; stored globally and shared by all projects, default English |
+| Rancher URL | Paste the full dashboard URL; cluster and namespace are parsed when the field loses focus |
+| Cluster ID | e.g. `c-m-zw299nxw` |
+| Default namespace | e.g. `test`; can be switched anytime from the tool window dropdown. Empty means `test` |
+| Refresh interval (s) | 3–300, default 10 |
+| Notify when a deployment fails | Per service; requires two consecutive failed refreshes, successful rollouts are not announced |
+| Pause polling when the tool window is closed | Off by default |
+| API Token | Create it in Rancher from the avatar menu → Account & API Keys; grant access to the current cluster only |
 
-Token 保存在 IDE 凭据存储（PasswordSafe）中，按 Rancher 地址区分，**不会写入项目配置文件**。
+The token is stored in the IDE credential store (PasswordSafe), keyed by Rancher URL, and is **never written to project files**.
 
-## 使用
+## Usage
 
-1. 右侧边栏打开 **Rancher** 工具窗
-2. 左上角下拉框选择命名空间（默认 `test`），列表展示该空间下所有服务状态，搜索框按名称过滤
-3. 单击行在下方查看 Pod 详情，双击 Pod 打开日志 Tab
-4. 「刷新」按钮手动拉取（同时重新加载命名空间列表）；状态栏常驻显示当前命名空间聚合状态
+1. Open the **Rancher View** tool window from the right sidebar
+2. Pick a namespace from the dropdown (defaults to `test`); the list shows every service in it, and the filter box searches by name
+3. Click a row to see pod details below; double-click a pod to open its log tab
+4. The **Refresh** button pulls data immediately (and reloads the namespace list); the status bar always shows the aggregate status of the current namespace
 
-## 构建
+## Build
 
 ```bash
 # JDK 21
 ./gradlew buildPlugin
-# 产物：build/distributions/rancher-view-2.0.0.zip
+# Output: build/distributions/rancher-view-2.1.0.zip
 ```
 
-开发调试（启动沙箱 IDE）：
+Run a sandbox IDE for development:
 
 ```bash
 ./gradlew runIde
 ```
 
-## 项目结构
+## Project structure
 
 ```
 src/main/kotlin/com/nathan/rancherview/
-├── api/          # Rancher Steve API 客户端（Deployment/Pod 列表、Pod 日志）
-├── config/       # 项目级配置与设置页
+├── api/          # Rancher Steve API client (Deployment/Pod lists, pod logs)
+├── config/       # Project-level settings and the settings page
 ├── model/        # ServiceInfo / PodInfo / NamespaceSnapshot
-├── service/      # 轮询服务、通知
-├── statusbar/    # 状态栏组件
-├── toolwindow/   # 工具窗（列表 + 详情）、日志 Tab 服务
-└── util/         # URL 解析、Token 存取
+├── service/      # Polling service and notifications
+├── statusbar/    # Status bar widget
+├── toolwindow/   # Tool window (list + detail) and the log tab service
+└── util/         # URL parsing, token storage, i18n bundle
 ```
 
-## 接口说明
+## API notes
 
-- 命名空间列表：`GET /k8s/clusters/{clusterId}/v1/namespaces`（Steve `data` 数组）
-- 服务列表：`GET /k8s/clusters/{clusterId}/v1/apps.deployments/{namespace}`（Steve `data` 数组）
-- Pod 列表：`GET /k8s/clusters/{clusterId}/v1/pods/{namespace}`，按 Deployment 的 `matchLabels` 归组
-- Pod 日志：`GET /k8s/clusters/{clusterId}/api/v1/namespaces/{namespace}/pods/{pod}/log?tailLines=300`
-- 认证：`Authorization: Bearer <token>`
+- Namespace list: `GET /k8s/clusters/{clusterId}/v1/namespaces` (Steve `data` array)
+- Service list: `GET /k8s/clusters/{clusterId}/v1/apps.deployments/{namespace}` (Steve `data` array)
+- Pod list: `GET /k8s/clusters/{clusterId}/v1/pods/{namespace}`, grouped by the Deployment `matchLabels`
+- Pod logs: `GET /k8s/clusters/{clusterId}/api/v1/namespaces/{namespace}/pods/{pod}/log?tailLines=300`
+- Authentication: `Authorization: Bearer <token>`
