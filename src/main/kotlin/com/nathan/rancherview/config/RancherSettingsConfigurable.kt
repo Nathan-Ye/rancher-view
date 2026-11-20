@@ -113,14 +113,21 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
             .addComponent(notificationsCheck!!)
             .addComponent(pauseCheck!!)
             .addLabeledComponent(JBLabel(RancherBundle.message("settings.apiToken")), tokenField!!)
-            .addComponent(JPanel(BorderLayout(8, 0)).apply {
+            .addComponent(JPanel(BorderLayout(8, 2)).apply {
                 isOpaque = false
-                add(JBLabel(RancherBundle.message("settings.tokenHint")), BorderLayout.CENTER)
-                add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                add(JPanel(BorderLayout(8, 0)).apply {
+                    isOpaque = false
+                    add(JBLabel(RancherBundle.message("settings.tokenHint")), BorderLayout.CENTER)
+                    add(JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                        isOpaque = false
+                        add(testButton!!)
+                    }, BorderLayout.EAST)
+                }, BorderLayout.NORTH)
+                // 测试结果单独放在按钮下一行右侧，避免和左侧提示挤在一行
+                add(JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
                     isOpaque = false
                     add(testResult!!)
-                    add(testButton!!)
-                }, BorderLayout.EAST)
+                }, BorderLayout.SOUTH)
             })
             .addComponentFillVertically(JPanel(), 0)
             .panel
