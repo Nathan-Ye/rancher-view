@@ -37,26 +37,29 @@ class RancherLogTabService(private val project: Project) : Disposable {
     fun openLog(podName: String) {
         if (project.isDisposed) return
         val settings = project.service<RancherSettings>()
+        val namespace = settings.namespace
+        val sessionKey = "$namespace/$podName"
         val manager = FileEditorManager.getInstance(project)
-        val existing = sessions[podName]
+        val existing = sessions[sessionKey]
         if (existing != null && manager.isFileOpen(existing.virtualFile)) {
             manager.openTextEditor(OpenFileDescriptor(project, existing.virtualFile), true)
             return
         }
 
         // 会话因配置切换停止后 tab 可能还开着，复用同一个虚拟文件避免出现同名两个 tab
+        val fileName = "$podName ($namespace).log"
         val reopened = manager.openFiles
-            .firstOrNull { it is LightVirtualFile && it.name == "$podName.log" } as? LightVirtualFile
+            .firstOrNull { it is LightVirtualFile && it.name == fileName } as? LightVirtualFile
         val virtualFile = reopened ?: LightVirtualFile(
-            "$podName.log",
+            fileName,
             FileTypeManager.getInstance().getFileTypeByExtension("log"),
             "# 正在加载日志…"
         )
 
-        val session = LogSession(podName, virtualFile, settings.clusterId, settings.namespace)
+        val session = LogSession(sessionKey, podName, virtualFile, settings.clusterId, namespace)
         // 挂在服务下统一管理生命周期，Alarm 也随会话一起释放
         Disposer.register(this, session)
-        sessions[podName] = session
+        sessions[sessionKey] = session
         manager.openTextEditor(OpenFileDescriptor(project, virtualFile), true)
         session.start()
     }
@@ -67,6 +70,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
     }
 
     private inner class LogSession(
+        private val sessionKey: String,
         private val podName: String,
         val virtualFile: LightVirtualFile,
         private val clusterId: String,
@@ -95,10 +99,10 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 return
             }
             val settings = project.service<RancherSettings>()
-            // 集群或命名空间已切换，旧 Pod 名不再有效，停止轮询
-            if (settings.clusterId != clusterId || settings.namespace != namespace) {
+            // 集群已切换，旧 Pod 名不再有效，停止轮询；命名空间切换不影响已打开的日志
+            if (settings.clusterId != clusterId) {
                 stop()
-                appendNotice("# 集群或命名空间配置已切换，停止刷新该 Pod 日志")
+                appendNotice("# 集群配置已切换，停止刷新该 Pod 日志")
                 return
             }
             if (!busy.compareAndSet(false, true)) {
@@ -121,11 +125,11 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 val log = api.fetchLog(
                     baseUrl = settings.url,
                     token = token,
-                    clusterId = settings.clusterId,
-                    namespace = settings.namespace,
+                    clusterId = clusterId,
+                    namespace = namespace,
                     podName = podName
                 )
-                val header = "# $podName · 最后 300 行 · 每 5 秒刷新 · ${TIME_FORMAT.format(LocalTime.now())}\n\n"
+                val header = "# $podName ($namespace) · 最后 300 行 · 每 5 秒刷新 · ${TIME_FORMAT.format(LocalTime.now())}\n\n"
                 header + wrapLongLines(log)
             } catch (e: ProcessCanceledException) {
                 throw e
@@ -236,14 +240,14 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 if (stopped) return
                 stopped = true
             }
-            sessions.remove(podName, this)
+            sessions.remove(sessionKey, this)
             // 释放 Alarm 子节点并从 Disposer 树中摘除
             Disposer.dispose(this)
         }
 
         override fun dispose() {
             synchronized(lifecycleLock) { stopped = true }
-            sessions.remove(podName, this)
+            sessions.remove(sessionKey, this)
         }
     }
 

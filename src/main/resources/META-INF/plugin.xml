@@ -7,11 +7,12 @@
     <description><![CDATA[
         View Rancher deployment status and pod logs directly inside IntelliJ IDEA, one Rancher workload per project.
         <br/><br/>
-        在 IntelliJ IDEA 中直接查看 Rancher 服务状态与 Pod 日志，每个项目绑定一个 Rancher 工作负载，发布后无需再切浏览器。
+        在 IntelliJ IDEA 中直接查看 Rancher 服务状态与 Pod 日志，工具窗内可切换任意命名空间，发布后无需再切浏览器。
 
         <h3>Features</h3>
         <ul>
-            <li>Per-project Rancher deployment configuration (paste the dashboard URL to auto-fill)</li>
+            <li>Per-project Rancher configuration (paste the dashboard URL to auto-fill)</li>
+            <li>Namespace dropdown in the tool window (defaults to test, selection remembered)</li>
             <li>Rollout summary: ready/updated/available replicas and current image</li>
             <li>Pod table with status, restarts, age, node and image</li>
             <li>Pod logs in a follow-refreshing editor tab</li>
@@ -26,7 +27,8 @@
 
         <h3>功能特点</h3>
         <ul>
-            <li>项目级配置：每个项目绑定一个 Rancher 工作负载，支持粘贴 dashboard 地址自动解析</li>
+            <li>项目级配置：每个项目绑定一个 Rancher 集群，支持粘贴 dashboard 地址自动解析</li>
+            <li>命名空间下拉切换：工具窗左上角选择，默认 test 并记住上次选择</li>
             <li>发布摘要：就绪/更新/可用副本与当前镜像版本</li>
             <li>Pod 列表：状态、重启次数、运行时长、节点、镜像</li>
             <li>双击 Pod 在编辑器打开日志，自动跟随刷新</li>
@@ -41,6 +43,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>2.0.0</h3>
+        <ul>
+            <li>Multi-namespace support: pick any namespace from the dropdown at the top-left of the tool window (defaults to test), the selection is remembered; log tabs are isolated per namespace.</li>
+            <li>多命名空间支持：工具窗左上角下拉框可切换任意命名空间（默认 test）并自动记住选择；日志 Tab 按命名空间隔离。</li>
+        </ul>
         <h3>0.1.0</h3>
         <ul>
             <li>Initial version: per-project Rancher deployment status, pod table, log tab, status bar widget and rollout notifications.</li>

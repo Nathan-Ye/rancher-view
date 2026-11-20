@@ -26,7 +26,9 @@ class RancherMonitorService(private val project: Project) : Disposable {
         val snapshot: NamespaceSnapshot? = null,
         val error: String? = null,
         val loading: Boolean = false,
-        val configured: Boolean = false
+        val configured: Boolean = false,
+        val namespaces: List<String> = emptyList(),
+        val namespace: String = ""
     )
 
     fun interface Listener {
@@ -42,8 +44,14 @@ class RancherMonitorService(private val project: Project) : Disposable {
     private var disposed = false
 
     @Volatile
-    var state: State = State(configured = settings.isConfigured())
+    var state: State = State(configured = settings.isConfigured(), namespace = settings.namespace)
         private set
+
+    @Volatile
+    private var namespaces: List<String> = emptyList()
+
+    @Volatile
+    private var namespacesDirty = true
 
     private val failureStreaks = HashMap<String, Int>()
 
@@ -70,6 +78,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     fun refreshNow() {
         if (isAborted()) return
+        namespacesDirty = true
         if (busy.get()) {
             // 请求进行中，等本轮结束后立即再刷一次
             refreshQueued = true
@@ -80,11 +89,43 @@ class RancherMonitorService(private val project: Project) : Disposable {
         schedule(0)
     }
 
+    fun selectNamespace(namespace: String) {
+        if (isAborted() || namespace.isBlank()) return
+        val settings = settings
+        if (namespace == settings.namespace) return
+        settings.update(settings.state.copy(namespace = namespace))
+        failureStreaks.clear()
+        publish(
+            state.copy(
+                snapshot = null,
+                error = null,
+                loading = true,
+                configured = settings.isConfigured(),
+                namespaces = namespaces,
+                namespace = namespace
+            )
+        )
+        // 切换命名空间只需重新拉数据，不必重新加载命名空间列表
+        if (busy.get()) {
+            refreshQueued = true
+        } else {
+            alarm.cancelAllRequests()
+            schedule(0)
+        }
+    }
+
     fun restartPolling() {
         alarm.cancelAllRequests()
         refreshQueued = false
         failureStreaks.clear()
-        publish(State(configured = settings.isConfigured()))
+        namespacesDirty = true
+        publish(
+            State(
+                configured = settings.isConfigured(),
+                namespaces = namespaces,
+                namespace = settings.namespace
+            )
+        )
         if (!disposed) schedule(0)
     }
 
@@ -119,12 +160,19 @@ class RancherMonitorService(private val project: Project) : Disposable {
             return
         }
         if (!settings.isConfigured()) {
-            publish(State(configured = false))
+            publish(State(configured = false, namespaces = namespaces, namespace = settings.namespace))
             return
         }
         val token = RancherTokenStore.get(settings.url)
         if (token.isNullOrBlank()) {
-            publish(State(configured = true, error = "未配置 Rancher API Token，请在 Settings → Rancher 服务中填写"))
+            publish(
+                State(
+                    configured = true,
+                    error = "未配置 Rancher API Token，请在 Settings → Rancher 服务中填写",
+                    namespaces = namespaces,
+                    namespace = settings.namespace
+                )
+            )
             scheduleNext(settings)
             return
         }
@@ -133,21 +181,29 @@ class RancherMonitorService(private val project: Project) : Disposable {
             refreshQueued = true
             return
         }
-        publish(state.copy(configured = true, loading = true))
+        val namespace = settings.namespace
+        publish(state.copy(configured = true, loading = true, namespaces = namespaces, namespace = namespace))
         try {
+            if (namespacesDirty) {
+                val fetched = runCatching { api.fetchNamespaces(settings.url, token, settings.clusterId) }.getOrNull()
+                if (!fetched.isNullOrEmpty()) {
+                    namespaces = fetched.sorted()
+                    namespacesDirty = false
+                }
+            }
             val snapshot = api.fetchNamespace(
                 baseUrl = settings.url,
                 token = token,
                 clusterId = settings.clusterId,
-                namespace = settings.namespace
+                namespace = namespace
             )
-            // 请求期间项目可能已关闭，此时不再触碰项目级服务
-            if (isAborted()) return
+            // 请求期间项目可能已关闭，或者用户已切换命名空间，此时丢弃旧结果
+            if (isAborted() || namespace != settings.namespace) return
             handleSuccess(snapshot, settings.notificationsEnabled)
         } catch (e: ProcessCanceledException) {
             throw e
         } catch (e: Exception) {
-            if (isAborted()) return
+            if (isAborted() || namespace != settings.namespace) return
             handleError(e)
         } finally {
             busy.set(false)
@@ -164,30 +220,35 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     private fun handleSuccess(snapshot: NamespaceSnapshot, notificationsEnabled: Boolean) {
         updateFailureStreaks(snapshot)
-        publish(State(snapshot = snapshot, configured = true))
+        publish(State(snapshot = snapshot, configured = true, namespaces = namespaces, namespace = snapshot.namespace))
 
         if (!notificationsEnabled) return
 
         for (service in snapshot.services) {
-            if (service.phase == DeployPhase.FAILED && failureStreaks[service.name] == FAILURE_NOTIFY_STREAK) {
+            val key = streakKey(snapshot.namespace, service.name)
+            if (service.phase == DeployPhase.FAILED && failureStreaks[key] == FAILURE_NOTIFY_STREAK) {
                 val failedPod = service.pods.firstOrNull { it.failed }
                 RancherNotifications.error(
                     project,
                     "${service.name} 发布异常",
-                    failedPod?.let { "${it.name}：${it.status}" } ?: "服务未就绪 ${service.readyRatio}"
+                    (failedPod?.let { "${it.name}：${it.status}" } ?: "服务未就绪 ${service.readyRatio}") +
+                        "（${snapshot.namespace}）"
                 )
             }
         }
     }
 
+    private fun streakKey(namespace: String, serviceName: String): String = "$namespace/$serviceName"
+
     private fun updateFailureStreaks(snapshot: NamespaceSnapshot) {
-        val names = snapshot.services.mapTo(HashSet()) { it.name }
-        failureStreaks.keys.retainAll(names)
+        val currentKeys = snapshot.services.mapTo(HashSet()) { streakKey(snapshot.namespace, it.name) }
+        failureStreaks.keys.retainAll(currentKeys)
         for (service in snapshot.services) {
+            val key = streakKey(snapshot.namespace, service.name)
             if (service.phase == DeployPhase.FAILED) {
-                failureStreaks[service.name] = (failureStreaks[service.name] ?: 0) + 1
+                failureStreaks[key] = (failureStreaks[key] ?: 0) + 1
             } else {
-                failureStreaks.remove(service.name)
+                failureStreaks.remove(key)
             }
         }
     }
@@ -199,7 +260,15 @@ class RancherMonitorService(private val project: Project) : Disposable {
             else -> "刷新失败：${e.message}"
         }
         Logger.getInstance(RancherMonitorService::class.java).warn("Rancher refresh failed: $message", e)
-        publish(state.copy(configured = true, loading = false, error = message))
+        publish(
+            state.copy(
+                configured = true,
+                loading = false,
+                error = message,
+                namespaces = namespaces,
+                namespace = settings.namespace
+            )
+        )
     }
 
     private fun publish(newState: State) {

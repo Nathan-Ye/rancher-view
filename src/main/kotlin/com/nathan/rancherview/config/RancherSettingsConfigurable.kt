@@ -57,7 +57,7 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         }
         clusterField = JBTextField(state.clusterId)
         namespaceField = JBTextField(state.namespace).apply {
-            toolTipText = "命名空间下所有 Deployment 都会出现在服务列表中，如 test"
+            toolTipText = "工具窗左上角可下拉切换命名空间；此处为默认查看的命名空间，留空则使用 test"
         }
         refreshSpinner = JSpinner(SpinnerNumberModel(state.refreshSeconds.coerceIn(3, 300), 3, 300, 1))
         notificationsCheck = JBCheckBox("发布异常时弹出通知", state.notificationsEnabled).apply {
@@ -76,7 +76,7 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         return FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Rancher 地址："), urlField!!)
             .addLabeledComponent(JBLabel("集群 ID："), clusterField!!)
-            .addLabeledComponent(JBLabel("命名空间："), namespaceField!!)
+            .addLabeledComponent(JBLabel("默认命名空间："), namespaceField!!)
             .addLabeledComponent(JBLabel("刷新间隔（秒）："), refreshSpinner!!)
             .addComponent(notificationsCheck!!)
             .addComponent(pauseCheck!!)
@@ -160,11 +160,12 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         val url = urlField?.text?.trim()?.trimEnd('/').orEmpty()
         val clusterId = clusterField?.text?.trim().orEmpty()
         val namespace = namespaceField?.text?.trim().orEmpty()
+            .ifEmpty { RancherSettings.DEFAULT_NAMESPACE }
         val typedToken = String(tokenField?.password ?: charArrayOf()).trim()
         val token = typedToken.ifEmpty { initialToken.orEmpty() }
 
-        if (url.isEmpty() || clusterId.isEmpty() || namespace.isEmpty()) {
-            showTestResult("请先填写 Rancher 地址、集群 ID 和命名空间", success = false)
+        if (url.isEmpty() || clusterId.isEmpty()) {
+            showTestResult("请先填写 Rancher 地址和集群 ID", success = false)
             return
         }
         if (token.isEmpty()) {

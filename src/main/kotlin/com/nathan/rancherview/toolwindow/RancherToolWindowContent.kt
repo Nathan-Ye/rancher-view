@@ -34,6 +34,7 @@ import java.time.format.DateTimeFormatter
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JTable
@@ -56,8 +57,8 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
     private val podModel = PodTableModel()
     private val podTable = JBTable(podModel)
 
-    private val titleLabel = JBLabel()
     private val subtitleLabel = JBLabel()
+    private val namespaceCombo = JComboBox<String>()
     private val chipLabel = JBLabel()
     private val statsLabel = JBLabel()
     private val errorLabel = JBLabel()
@@ -72,6 +73,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
     private var snapshot: NamespaceSnapshot? = null
     private var selectedName: String? = null
+    private var updatingNamespaceChoices = false
 
     private val properties = PropertiesComponent.getInstance(project)
     private val columnWidthTimers = mutableListOf<Timer>()
@@ -85,8 +87,20 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
             border = JBUI.Borders.empty(8, 10, 8, 10)
             add(cards, BorderLayout.CENTER)
         }
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
         subtitleLabel.foreground = MUTED
+        namespaceCombo.apply {
+            isOpaque = false
+            font = font.deriveFont(Font.BOLD, 13f)
+            preferredSize = JBUI.size(150, preferredSize.height)
+            maximumSize = preferredSize
+            minimumSize = preferredSize
+            toolTipText = "切换要查看的命名空间"
+            addActionListener {
+                if (updatingNamespaceChoices) return@addActionListener
+                val namespace = selectedItem as? String ?: return@addActionListener
+                monitor.selectNamespace(namespace)
+            }
+        }
         detailTitle.font = detailTitle.font.deriveFont(Font.BOLD, 13f)
         detailStats.foreground = MUTED
         filterField.emptyText.text = "按名称筛选服务"
@@ -130,13 +144,18 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         titleRow.add(JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            add(titleLabel)
+            add(JBLabel("命名空间：").apply { foreground = MUTED })
+            add(namespaceCombo)
             add(Box.createHorizontalStrut(8))
             add(subtitleLabel)
         }, BorderLayout.CENTER)
-        titleRow.add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+        titleRow.add(JPanel().apply {
+            // FlowLayout 在整行高度里会贴顶排列，改用 BoxLayout 与左侧下拉框垂直居中对齐
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
+            border = JBUI.Borders.emptyLeft(6)
             add(chipLabel)
+            add(Box.createHorizontalStrut(6))
             add(statsLabel)
         }, BorderLayout.EAST)
 
@@ -297,8 +316,8 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         val configured = state.configured && settings.isConfigured()
         (cards.layout as CardLayout).show(cards, if (configured) CARD_MAIN else CARD_EMPTY)
 
-        titleLabel.text = settings.namespace.ifEmpty { "Rancher" }
         subtitleLabel.text = settings.clusterId
+        updateNamespaceChoices(state)
 
         refreshButton.isEnabled = !state.loading
         errorLabel.isVisible = state.error != null
@@ -328,6 +347,24 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
             if (state.loading) append(" · 刷新中…")
         }
         applyFilter()
+    }
+
+    private fun updateNamespaceChoices(state: RancherMonitorService.State) {
+        val selected = state.namespace.ifBlank { settings.namespace }
+        val choices = state.namespaces.toMutableList()
+        if (selected.isNotBlank() && selected !in choices) choices.add(0, selected)
+
+        val currentChoices = (0 until namespaceCombo.itemCount).map { namespaceCombo.getItemAt(it) }
+        if (currentChoices == choices && namespaceCombo.selectedItem == selected) return
+
+        updatingNamespaceChoices = true
+        try {
+            namespaceCombo.removeAllItems()
+            choices.forEach { namespaceCombo.addItem(it) }
+            if (selected.isNotBlank()) namespaceCombo.selectedItem = selected
+        } finally {
+            updatingNamespaceChoices = false
+        }
     }
 
     private fun applyFilter() {

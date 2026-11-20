@@ -12,7 +12,7 @@ class RancherSettings : PersistentStateComponent<RancherSettings.State> {
     data class State(
         var rancherUrl: String = "https://ds-oms.gree.com:8888",
         var clusterId: String = "",
-        var namespace: String = "",
+        var namespace: String = DEFAULT_NAMESPACE,
         var refreshSeconds: Int = 10,
         var notificationsEnabled: Boolean = true,
         var pauseWhenClosed: Boolean = false
@@ -29,19 +29,20 @@ class RancherSettings : PersistentStateComponent<RancherSettings.State> {
 
     val url: String get() = myState.rancherUrl.trim().trimEnd('/')
     val clusterId: String get() = myState.clusterId.trim()
-    val namespace: String get() = myState.namespace.trim()
+    val namespace: String get() = myState.namespace.trim().ifEmpty { DEFAULT_NAMESPACE }
     val refreshSeconds: Int get() = myState.refreshSeconds.coerceIn(3, 300)
     val notificationsEnabled: Boolean get() = myState.notificationsEnabled
     val pauseWhenClosed: Boolean get() = myState.pauseWhenClosed
 
-    fun isConfigured(): Boolean =
-        url.isNotEmpty() && clusterId.isNotEmpty() && namespace.isNotEmpty()
+    fun isConfigured(): Boolean = url.isNotEmpty() && clusterId.isNotEmpty()
 
     fun update(newState: State) {
         myState = newState
     }
 
     companion object {
+        const val DEFAULT_NAMESPACE = "test"
+
         fun getInstance(project: Project): RancherSettings = project.service()
     }
 }

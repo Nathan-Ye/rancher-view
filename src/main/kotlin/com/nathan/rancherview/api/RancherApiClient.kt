@@ -23,6 +23,19 @@ class RancherApiClient {
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    fun fetchNamespaces(
+        baseUrl: String,
+        token: String,
+        clusterId: String
+    ): List<String> {
+        val json = getJson("$baseUrl/k8s/clusters/$clusterId/v1/namespaces", token)
+        return items(json)
+            .filter { it.isJsonObject }
+            .mapNotNull { it.asJsonObject.obj("metadata")?.str("name") }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
     fun fetchNamespace(
         baseUrl: String,
         token: String,
