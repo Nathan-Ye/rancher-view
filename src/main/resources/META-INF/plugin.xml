@@ -43,6 +43,11 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>2.1.0</h3>
+        <ul>
+            <li>English and Chinese UI; the language is configurable in settings (English by default).</li>
+            <li>中英文双语界面，可在设置中选择语言，默认英文。</li>
+        </ul>
         <h3>2.0.0</h3>
         <ul>
             <li>Multi-namespace support: pick any namespace from the dropdown at the top-left of the tool window (defaults to test), the selection is remembered; log tabs are isolated per namespace.</li>
@@ -67,7 +72,7 @@
 
         <projectConfigurable instance="com.nathan.rancherview.config.RancherSettingsConfigurable"
                              id="com.nathan.rancherview.settings"
-                             displayName="Rancher 服务"/>
+                             displayName="Rancher"/>
 
         <projectService serviceImplementation="com.nathan.rancherview.config.RancherSettings"/>
         <projectService serviceImplementation="com.nathan.rancherview.service.RancherMonitorService"/>

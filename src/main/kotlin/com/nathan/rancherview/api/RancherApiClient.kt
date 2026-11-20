@@ -7,6 +7,7 @@ import com.google.gson.JsonParser
 import com.nathan.rancherview.model.NamespaceSnapshot
 import com.nathan.rancherview.model.PodInfo
 import com.nathan.rancherview.model.ServiceInfo
+import com.nathan.rancherview.util.RancherBundle
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.Duration
@@ -72,7 +73,7 @@ class RancherApiClient {
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw apiError(response.code, body)
             if (response.header("Content-Type").orEmpty().contains("text/html", ignoreCase = true)) {
-                throw RancherApiException(HTML_RESPONSE_MESSAGE)
+                throw RancherApiException(RancherBundle.message("error.htmlResponse"))
             }
             return body
         }
@@ -94,18 +95,19 @@ class RancherApiClient {
                 JsonParser.parseString(body)
             } catch (e: JsonParseException) {
                 throw RancherApiException(
-                    if (body.isBlank()) "Rancher 返回了空响应，请检查网络/代理后重试" else HTML_RESPONSE_MESSAGE
+                    if (body.isBlank()) RancherBundle.message("error.emptyResponse")
+                    else RancherBundle.message("error.htmlResponse")
                 )
             }
-            if (!parsed.isJsonObject) throw RancherApiException(HTML_RESPONSE_MESSAGE)
+            if (!parsed.isJsonObject) throw RancherApiException(RancherBundle.message("error.htmlResponse"))
             return parsed.asJsonObject
         }
     }
 
     private fun apiError(code: Int, body: String): RancherApiException = when (code) {
-        401, 403 -> RancherApiException("Rancher 认证失败（HTTP $code），请检查 API Token 是否有效、是否已过期")
-        404 -> RancherApiException("未找到资源（HTTP 404），请检查集群 ID / 命名空间配置")
-        else -> RancherApiException("请求失败（HTTP $code）：${body.take(200)}")
+        401, 403 -> RancherApiException(RancherBundle.message("error.authFailed", code))
+        404 -> RancherApiException(RancherBundle.message("error.notFound"))
+        else -> RancherApiException(RancherBundle.message("error.httpFailed", code, body.take(200)))
     }
 
     // Steve API 在集群异常时可能返回 "data": null，直接用 getAsJsonArray 会抛 ClassCastException
@@ -248,9 +250,6 @@ class RancherApiClient {
     }
 
     companion object {
-        private const val HTML_RESPONSE_MESSAGE =
-            "Rancher 返回了网页而不是数据，通常是 Token 失效被跳转到了登录页，请重新配置 API Token"
-
         private val FAILED_REASONS = setOf(
             "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "InvalidImageName",
             "CreateContainerError", "RunContainerError", "ContainerCannotRun", "OOMKilled", "Error"

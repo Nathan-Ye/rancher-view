@@ -3,6 +3,7 @@ package com.nathan.rancherview.toolwindow
 import com.intellij.icons.AllIcons
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
@@ -19,6 +20,8 @@ import com.nathan.rancherview.model.DeployPhase
 import com.nathan.rancherview.model.NamespaceSnapshot
 import com.nathan.rancherview.model.ServiceInfo
 import com.nathan.rancherview.service.RancherMonitorService
+import com.nathan.rancherview.util.RancherBundle
+import com.nathan.rancherview.util.RancherText
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
@@ -53,23 +56,24 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
     private val logTabs = project.service<RancherLogTabService>()
 
     private val serviceModel = ServiceTableModel()
-    private val serviceTable = JBTable(serviceModel)
     private val podModel = PodTableModel()
-    private val podTable = JBTable(podModel)
 
-    private val subtitleLabel = JBLabel()
-    private val namespaceCombo = JComboBox<String>()
-    private val chipLabel = JBLabel()
-    private val statsLabel = JBLabel()
-    private val errorLabel = JBLabel()
-    private val detailTitle = JBLabel()
-    private val detailChip = JBLabel()
-    private val detailStats = JBLabel()
-    private val refreshButton = JButton("刷新", AllIcons.Actions.Refresh)
-    private val settingsButton = JButton("配置", AllIcons.General.GearPlain)
-    private val filterField = JBTextField()
-    private val cards = JPanel(CardLayout())
-    private val detailCards = JPanel(CardLayout())
+    private val root = JPanel(BorderLayout())
+    private lateinit var serviceTable: JBTable
+    private lateinit var podTable: JBTable
+    private lateinit var subtitleLabel: JBLabel
+    private lateinit var namespaceCombo: JComboBox<String>
+    private lateinit var chipLabel: JBLabel
+    private lateinit var statsLabel: JBLabel
+    private lateinit var errorLabel: JBLabel
+    private lateinit var detailTitle: JBLabel
+    private lateinit var detailChip: JBLabel
+    private lateinit var detailStats: JBLabel
+    private lateinit var refreshButton: JButton
+    private lateinit var settingsButton: JButton
+    private lateinit var filterField: JBTextField
+    private lateinit var cards: JPanel
+    private lateinit var detailCards: JPanel
 
     private var snapshot: NamespaceSnapshot? = null
     private var selectedName: String? = null
@@ -80,33 +84,67 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
     private val listener = RancherMonitorService.Listener { state -> update(state) }
 
-    val component: JComponent
+    val component: JComponent get() = root
 
     init {
-        component = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(8, 10, 8, 10)
-            add(cards, BorderLayout.CENTER)
-        }
-        subtitleLabel.foreground = MUTED
-        namespaceCombo.apply {
+        root.border = JBUI.Borders.empty(8, 10, 8, 10)
+        ApplicationManager.getApplication().messageBus.connect(this)
+            .subscribe(RancherBundle.LANGUAGE_TOPIC, object : RancherBundle.LanguageListener {
+                override fun languageChanged() = rebuild()
+            })
+        rebuild()
+        monitor.addListener(listener)
+    }
+
+    override fun dispose() {
+        monitor.removeListener(listener)
+        columnWidthTimers.forEach { it.stop() }
+    }
+
+    private fun rebuild() {
+        if (project.isDisposed) return
+        val previousFilter = if (this::filterField.isInitialized) filterField.text else ""
+        columnWidthTimers.forEach { it.stop() }
+        columnWidthTimers.clear()
+        root.removeAll()
+
+        subtitleLabel = JBLabel().apply { foreground = MUTED }
+        namespaceCombo = JComboBox<String>().apply {
             isOpaque = false
             font = font.deriveFont(Font.BOLD, 13f)
             preferredSize = JBUI.size(150, preferredSize.height)
             maximumSize = preferredSize
             minimumSize = preferredSize
-            toolTipText = "切换要查看的命名空间"
+            toolTipText = RancherBundle.message("tw.namespaceTooltip")
             addActionListener {
                 if (updatingNamespaceChoices) return@addActionListener
                 val namespace = selectedItem as? String ?: return@addActionListener
                 monitor.selectNamespace(namespace)
             }
         }
-        detailTitle.font = detailTitle.font.deriveFont(Font.BOLD, 13f)
-        detailStats.foreground = MUTED
-        filterField.emptyText.text = "按名称筛选服务"
+        chipLabel = JBLabel()
+        statsLabel = JBLabel()
+        errorLabel = JBLabel().apply {
+            foreground = ERROR
+            isVisible = false
+        }
+        detailTitle = JBLabel().apply { font = font.deriveFont(Font.BOLD, 13f) }
+        detailChip = JBLabel()
+        detailStats = JBLabel().apply { foreground = MUTED }
+        refreshButton = JButton(RancherBundle.message("action.refresh"), AllIcons.Actions.Refresh)
+        settingsButton = JButton(RancherBundle.message("action.settings"), AllIcons.General.GearPlain)
+        filterField = JBTextField().apply {
+            emptyText.text = RancherBundle.message("tw.filterPlaceholder")
+            text = previousFilter
+        }
+        cards = JPanel(CardLayout())
+        detailCards = JPanel(CardLayout())
+        serviceTable = JBTable(serviceModel)
+        podTable = JBTable(podModel)
 
         cards.add(buildEmptyCard(), CARD_EMPTY)
         cards.add(buildMainPanel(), CARD_MAIN)
+        root.add(cards, BorderLayout.CENTER)
 
         refreshButton.addActionListener { monitor.refreshNow() }
         settingsButton.addActionListener { openSettings() }
@@ -118,12 +156,9 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
             override fun removeUpdate(e: DocumentEvent) = applyFilter()
             override fun changedUpdate(e: DocumentEvent) = applyFilter()
         })
-        monitor.addListener(listener)
-    }
-
-    override fun dispose() {
-        monitor.removeListener(listener)
-        columnWidthTimers.forEach { it.stop() }
+        root.revalidate()
+        root.repaint()
+        update(monitor.state)
     }
 
     private fun buildMainPanel(): JComponent {
@@ -144,7 +179,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         titleRow.add(JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
-            add(JBLabel("命名空间：").apply { foreground = MUTED })
+            add(JBLabel(RancherBundle.message("tw.namespaceLabel")).apply { foreground = MUTED })
             add(namespaceCombo)
             add(Box.createHorizontalStrut(8))
             add(subtitleLabel)
@@ -176,8 +211,6 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
             border = JBUI.Borders.emptyBottom(6)
             add(titleRow)
             add(filterRow)
-            errorLabel.foreground = ERROR
-            errorLabel.isVisible = false
             add(errorLabel)
         }
     }
@@ -209,7 +242,7 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(Box.createVerticalGlue())
-            add(JBLabel("选中上方服务查看 Pod 详情，双击 Pod 打开日志").apply {
+            add(JBLabel(RancherBundle.message("tw.detailPlaceholder")).apply {
                 alignmentX = Component.CENTER_ALIGNMENT
                 foreground = MUTED
             })
@@ -225,17 +258,17 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
         add(Box.createVerticalGlue())
-        add(JBLabel("当前项目尚未配置 Rancher 命名空间").apply {
+        add(JBLabel(RancherBundle.message("tw.emptyTitle")).apply {
             alignmentX = Component.CENTER_ALIGNMENT
             font = font.deriveFont(Font.BOLD, 13f)
         })
         add(Box.createVerticalStrut(6))
-        add(JBLabel("粘贴 Rancher dashboard 地址即可自动解析集群与命名空间").apply {
+        add(JBLabel(RancherBundle.message("tw.emptyHint")).apply {
             alignmentX = Component.CENTER_ALIGNMENT
             foreground = MUTED
         })
         add(Box.createVerticalStrut(10))
-        add(JButton("配置 Rancher 服务").apply {
+        add(JButton(RancherBundle.message("tw.emptyButton")).apply {
             alignmentX = Component.CENTER_ALIGNMENT
             addActionListener { openSettings() }
         })
@@ -327,8 +360,8 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
         val snap = state.snapshot
         if (snap == null) {
             snapshot = null
-            chipLabel.text = "<html><span style='color:#9E9E9E'>● 等待数据</span></html>"
-            statsLabel.text = if (state.loading) "刷新中…" else ""
+            chipLabel.text = "<html><span style='color:#9E9E9E'>● ${RancherBundle.message("tw.waiting")}</span></html>"
+            statsLabel.text = if (state.loading) RancherBundle.message("tw.refreshing") else ""
             serviceModel.clear()
             selectedName = null
             updateDetail()
@@ -337,14 +370,14 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
 
         snapshot = snap
         val color = phaseColor(snap.phase)
-        chipLabel.text = "<html><span style='color:$color;font-weight:bold'>● ${snap.phaseText}</span></html>"
+        chipLabel.text = "<html><span style='color:$color;font-weight:bold'>● ${RancherText.namespacePhase(snap.phase)}</span></html>"
         val time = TIME_FORMAT.format(Instant.ofEpochMilli(snap.fetchedAt).atZone(ZoneId.systemDefault()))
         statsLabel.text = buildString {
-            append(snap.readyCount).append('/').append(snap.total).append(" 就绪")
-            if (snap.failedCount > 0) append(" · ").append(snap.failedCount).append(" 异常")
-            if (snap.rollingCount > 0) append(" · ").append(snap.rollingCount).append(" 发布中")
+            append(RancherBundle.message("tw.statsReady", snap.readyCount, snap.total))
+            if (snap.failedCount > 0) append(" · ").append(RancherBundle.message("tw.statsFailed", snap.failedCount))
+            if (snap.rollingCount > 0) append(" · ").append(RancherBundle.message("tw.statsRolling", snap.rollingCount))
             append(" · ").append(time)
-            if (state.loading) append(" · 刷新中…")
+            if (state.loading) append(" · ").append(RancherBundle.message("tw.refreshing"))
         }
         applyFilter()
     }
@@ -404,11 +437,11 @@ class RancherToolWindowContent(private val project: Project) : Disposable {
     private fun renderDetail(service: ServiceInfo) {
         detailTitle.text = service.name
         val color = phaseColor(service.phase)
-        detailChip.text = "<html><span style='color:$color;font-weight:bold'>● ${service.phaseText}</span></html>"
+        detailChip.text = "<html><span style='color:$color;font-weight:bold'>● ${RancherText.servicePhase(service.phase)}</span></html>"
         detailStats.text = buildString {
-            append("就绪 ").append(service.readyRatio)
-            append(" · 更新 ").append(service.updatedReplicas).append('/').append(service.desiredReplicas)
-            append(" · Pod ").append(service.pods.size)
+            append(RancherBundle.message("tw.detailReady", service.readyRatio))
+            append(" · ").append(RancherBundle.message("tw.detailUpdated", service.updatedReplicas, service.desiredReplicas))
+            append(" · ").append(RancherBundle.message("tw.detailPods", service.pods.size))
             append(" · ").append(service.imageTag)
             append(" · ").append(service.age)
         }

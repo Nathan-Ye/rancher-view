@@ -4,6 +4,7 @@ import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.nathan.rancherview.model.PodInfo
+import com.nathan.rancherview.util.RancherBundle
 import java.awt.Color
 import java.awt.Component
 import java.awt.Graphics
@@ -18,13 +19,15 @@ import javax.swing.table.DefaultTableCellRenderer
 class PodTableModel : AbstractTableModel() {
 
     private var pods: List<PodInfo> = emptyList()
-    private val columns = arrayOf("名称", "状态", "就绪", "重启", "年龄", "节点", "镜像")
+    private val columnKeys = arrayOf(
+        "column.name", "column.status", "column.ready", "column.restarts", "column.age", "column.node", "column.image"
+    )
 
     override fun getRowCount(): Int = pods.size
 
-    override fun getColumnCount(): Int = columns.size
+    override fun getColumnCount(): Int = columnKeys.size
 
-    override fun getColumnName(column: Int): String = columns[column]
+    override fun getColumnName(column: Int): String = RancherBundle.message(columnKeys[column])
 
     override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
         val pod = pods[rowIndex]

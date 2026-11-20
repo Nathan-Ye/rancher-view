@@ -4,6 +4,8 @@ import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.nathan.rancherview.model.DeployPhase
 import com.nathan.rancherview.model.ServiceInfo
+import com.nathan.rancherview.util.RancherBundle
+import com.nathan.rancherview.util.RancherText
 import java.awt.Component
 import javax.swing.JLabel
 import javax.swing.JTable
@@ -13,19 +15,21 @@ import javax.swing.table.DefaultTableCellRenderer
 class ServiceTableModel : AbstractTableModel() {
 
     private var services: List<ServiceInfo> = emptyList()
-    private val columns = arrayOf("服务", "状态", "就绪", "更新", "Pods", "镜像", "年龄")
+    private val columnKeys = arrayOf(
+        "column.service", "column.status", "column.ready", "column.updated", "column.pods", "column.image", "column.age"
+    )
 
     override fun getRowCount(): Int = services.size
 
-    override fun getColumnCount(): Int = columns.size
+    override fun getColumnCount(): Int = columnKeys.size
 
-    override fun getColumnName(column: Int): String = columns[column]
+    override fun getColumnName(column: Int): String = RancherBundle.message(columnKeys[column])
 
     override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
         val service = services[rowIndex]
         return when (columnIndex) {
             0 -> service.name
-            1 -> service.phaseText
+            1 -> RancherText.servicePhase(service.phase)
             2 -> service.readyRatio
             3 -> "${service.updatedReplicas}/${service.desiredReplicas}"
             4 -> service.pods.size
@@ -67,7 +71,7 @@ class ServiceStatusCellRenderer(private val model: ServiceTableModel) : DefaultT
             DeployPhase.ROLLING -> "#F9A825"
             DeployPhase.FAILED -> "#E53935"
         }
-        label.text = "<html><span style='color:$color'>●</span> ${service.phaseText}</html>"
+        label.text = "<html><span style='color:$color'>●</span> ${RancherText.servicePhase(service.phase)}</html>"
         if (!isSelected) label.foreground = table.foreground
         return label
     }

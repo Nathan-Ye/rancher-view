@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
 import com.nathan.rancherview.api.RancherApiClient
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -13,6 +14,7 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.nathan.rancherview.service.RancherMonitorService
+import com.nathan.rancherview.util.RancherBundle
 import com.nathan.rancherview.util.RancherTokenStore
 import com.nathan.rancherview.util.RancherUrlParser
 import java.awt.BorderLayout
@@ -29,6 +31,7 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
 
     private val settings = project.service<RancherSettings>()
 
+    private var languageCombo: ComboBox<String>? = null
     private var urlField: JBTextField? = null
     private var clusterField: JBTextField? = null
     private var namespaceField: JBTextField? = null
@@ -40,50 +43,63 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     private var testResult: JBLabel? = null
 
     private var initialToken: String? = null
+    private var initialLanguage = RancherBundle.language()
     private var initial = RancherSettings.State()
 
-    override fun getDisplayName(): String = "Rancher 服务"
+    override fun getDisplayName(): String = RancherBundle.message("settings.displayName")
 
     override fun createComponent(): JComponent {
         val state = settings.state
         initial = state.copy()
         initialToken = RancherTokenStore.get(state.rancherUrl.trim().trimEnd('/'))
+        initialLanguage = RancherBundle.language()
 
+        languageCombo = ComboBox<String>().apply {
+            addItem(LANGUAGE_ENGLISH)
+            addItem(LANGUAGE_CHINESE)
+            selectedItem = if (initialLanguage == RancherBundle.CHINESE) LANGUAGE_CHINESE else LANGUAGE_ENGLISH
+            toolTipText = RancherBundle.message("settings.languageTooltip")
+        }
         urlField = JBTextField(state.rancherUrl).apply {
-            toolTipText = "可粘贴 Rancher dashboard 地址，离开输入框后自动解析集群与命名空间"
+            toolTipText = RancherBundle.message("settings.urlTooltip")
             addFocusListener(object : FocusAdapter() {
                 override fun focusLost(e: FocusEvent) = applyDashboardUrl()
             })
         }
         clusterField = JBTextField(state.clusterId)
         namespaceField = JBTextField(state.namespace).apply {
-            toolTipText = "工具窗左上角可下拉切换命名空间；此处为默认查看的命名空间，留空则使用 test"
+            toolTipText = RancherBundle.message("settings.namespaceTooltip")
         }
         refreshSpinner = JSpinner(SpinnerNumberModel(state.refreshSeconds.coerceIn(3, 300), 3, 300, 1))
-        notificationsCheck = JBCheckBox("发布异常时弹出通知", state.notificationsEnabled).apply {
-            toolTipText = "异常需连续两次刷新确认后才通知，避免滚动发布淘汰旧 Pod 时的误报；发布完成不通知"
+        notificationsCheck = JBCheckBox(
+            RancherBundle.message("settings.notifications"),
+            state.notificationsEnabled
+        ).apply {
+            toolTipText = RancherBundle.message("settings.notificationsTooltip")
         }
-        pauseCheck = JBCheckBox("关闭工具窗后暂停刷新", state.pauseWhenClosed)
+        pauseCheck = JBCheckBox(RancherBundle.message("settings.pause"), state.pauseWhenClosed)
         tokenField = JBPasswordField().apply {
             text = initialToken.orEmpty()
-            toolTipText = "在 Rancher 右上角头像 → Account & API Keys 创建，建议只授权当前集群"
+            toolTipText = RancherBundle.message("settings.tokenTooltip")
         }
         testResult = JBLabel()
-        testButton = JButton("测试连接").apply {
+        testButton = JButton(RancherBundle.message("settings.testButton")).apply {
             addActionListener { testConnection() }
         }
 
         return FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Rancher 地址："), urlField!!)
-            .addLabeledComponent(JBLabel("集群 ID："), clusterField!!)
-            .addLabeledComponent(JBLabel("默认命名空间："), namespaceField!!)
-            .addLabeledComponent(JBLabel("刷新间隔（秒）："), refreshSpinner!!)
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.language")), languageCombo!!)
+            .addSeparator()
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.url")), urlField!!)
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.cluster")), clusterField!!)
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.defaultNamespace")), namespaceField!!)
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.refreshInterval")), refreshSpinner!!)
             .addComponent(notificationsCheck!!)
             .addComponent(pauseCheck!!)
-            .addLabeledComponent(JBLabel("API Token："), tokenField!!)
+            .addLabeledComponent(JBLabel(RancherBundle.message("settings.apiToken")), tokenField!!)
             .addComponent(JPanel(BorderLayout(8, 0)).apply {
                 isOpaque = false
-                add(JBLabel("<html><i>Token 保存在 IDE 凭据存储中，不会写入项目配置文件。</i></html>"), BorderLayout.CENTER)
+                add(JBLabel(RancherBundle.message("settings.tokenHint")), BorderLayout.CENTER)
                 add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
                     isOpaque = false
                     add(testResult!!)
@@ -97,7 +113,8 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
 
     override fun isModified(): Boolean {
         val token = String(tokenField?.password ?: charArrayOf())
-        return urlField?.text?.trim() != initial.rancherUrl ||
+        return selectedLanguage() != initialLanguage ||
+            urlField?.text?.trim() != initial.rancherUrl ||
             clusterField?.text?.trim() != initial.clusterId ||
             namespaceField?.text?.trim() != initial.namespace ||
             ((refreshSpinner?.value as? Number)?.toInt() ?: initial.refreshSeconds) != initial.refreshSeconds ||
@@ -126,6 +143,12 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         }
         RancherTokenStore.set(newUrl, token)
 
+        val language = selectedLanguage()
+        if (language != initialLanguage) {
+            RancherBundle.setLanguage(language)
+            initialLanguage = language
+        }
+
         initial = newState.copy()
         initialToken = token
         project.service<RancherMonitorService>().restartPolling()
@@ -134,6 +157,8 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     override fun reset() {
         val state = settings.state
         initial = state.copy()
+        initialLanguage = RancherBundle.language()
+        languageCombo?.selectedItem = if (initialLanguage == RancherBundle.CHINESE) LANGUAGE_CHINESE else LANGUAGE_ENGLISH
         urlField?.text = state.rancherUrl
         clusterField?.text = state.clusterId
         namespaceField?.text = state.namespace
@@ -145,6 +170,7 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     }
 
     override fun disposeUIResources() {
+        languageCombo = null
         urlField = null
         clusterField = null
         namespaceField = null
@@ -156,6 +182,9 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         testResult = null
     }
 
+    private fun selectedLanguage(): String =
+        if (languageCombo?.selectedItem == LANGUAGE_CHINESE) RancherBundle.CHINESE else RancherBundle.ENGLISH
+
     private fun testConnection() {
         val url = urlField?.text?.trim()?.trimEnd('/').orEmpty()
         val clusterId = clusterField?.text?.trim().orEmpty()
@@ -165,26 +194,31 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         val token = typedToken.ifEmpty { initialToken.orEmpty() }
 
         if (url.isEmpty() || clusterId.isEmpty()) {
-            showTestResult("请先填写 Rancher 地址和集群 ID", success = false)
+            showTestResult(RancherBundle.message("settings.missingUrl"), success = false)
             return
         }
         if (token.isEmpty()) {
-            showTestResult("请填写 API Token", success = false)
+            showTestResult(RancherBundle.message("settings.missingToken"), success = false)
             return
         }
 
         testButton?.isEnabled = false
-        testResult?.text = "正在连接…"
+        testResult?.text = RancherBundle.message("settings.connecting")
         ApplicationManager.getApplication().executeOnPooledThread {
+            var success = false
             val message = try {
                 val snapshot = RancherApiClient().fetchNamespace(url, token, clusterId, namespace)
-                "连接成功：$namespace 下 ${snapshot.total} 个服务，就绪 ${snapshot.readyCount}，异常 ${snapshot.failedCount}"
+                success = true
+                RancherBundle.message(
+                    "settings.testSuccess",
+                    snapshot.total, namespace, snapshot.readyCount, snapshot.failedCount
+                )
             } catch (e: Exception) {
-                "连接失败：${e.message}"
+                RancherBundle.message("settings.testFailed", e.message.orEmpty())
             }
             ApplicationManager.getApplication().invokeLater({
                 testButton?.isEnabled = true
-                showTestResult(message, success = message.startsWith("连接成功"))
+                showTestResult(message, success)
             }, ModalityState.any())
         }
     }
@@ -203,5 +237,10 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         urlField?.text = target.baseUrl
         clusterField?.text = target.clusterId
         namespaceField?.text = target.namespace
+    }
+
+    companion object {
+        private const val LANGUAGE_ENGLISH = "English"
+        private const val LANGUAGE_CHINESE = "中文（简体）"
     }
 }

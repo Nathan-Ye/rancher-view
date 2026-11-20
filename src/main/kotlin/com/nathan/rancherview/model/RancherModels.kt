@@ -34,13 +34,6 @@ data class ServiceInfo(
             return if (done) DeployPhase.READY else DeployPhase.ROLLING
         }
 
-    val phaseText: String
-        get() = when (phase) {
-            DeployPhase.READY -> "已就绪"
-            DeployPhase.ROLLING -> "发布中"
-            DeployPhase.FAILED -> "异常"
-        }
-
     val readyRatio: String get() = "$readyReplicas/$desiredReplicas"
 
     val imageTag: String get() = image.substringAfterLast('/')
@@ -61,12 +54,5 @@ data class NamespaceSnapshot(
             failedCount > 0 -> DeployPhase.FAILED
             rollingCount > 0 -> DeployPhase.ROLLING
             else -> DeployPhase.READY
-        }
-
-    val phaseText: String
-        get() = when (phase) {
-            DeployPhase.READY -> "全部就绪"
-            DeployPhase.ROLLING -> "发布中"
-            DeployPhase.FAILED -> "存在异常"
         }
 }

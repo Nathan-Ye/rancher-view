@@ -14,6 +14,7 @@ import com.nathan.rancherview.api.RancherApiException
 import com.nathan.rancherview.config.RancherSettings
 import com.nathan.rancherview.model.DeployPhase
 import com.nathan.rancherview.model.NamespaceSnapshot
+import com.nathan.rancherview.util.RancherBundle
 import com.nathan.rancherview.util.RancherNotifications
 import com.nathan.rancherview.util.RancherTokenStore
 import java.io.IOException
@@ -168,7 +169,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
             publish(
                 State(
                     configured = true,
-                    error = "未配置 Rancher API Token，请在 Settings → Rancher 服务中填写",
+                    error = RancherBundle.message("error.tokenMissing"),
                     namespaces = namespaces,
                     namespace = settings.namespace
                 )
@@ -230,9 +231,11 @@ class RancherMonitorService(private val project: Project) : Disposable {
                 val failedPod = service.pods.firstOrNull { it.failed }
                 RancherNotifications.error(
                     project,
-                    "${service.name} 发布异常",
-                    (failedPod?.let { "${it.name}：${it.status}" } ?: "服务未就绪 ${service.readyRatio}") +
-                        "（${snapshot.namespace}）"
+                    RancherBundle.message("notification.failedTitle", service.name),
+                    (failedPod?.let {
+                        RancherBundle.message("notification.podDetail", it.name, it.status)
+                    } ?: RancherBundle.message("notification.notReady", service.readyRatio)) +
+                        RancherBundle.message("notification.namespace", snapshot.namespace)
                 )
             }
         }
@@ -255,9 +258,9 @@ class RancherMonitorService(private val project: Project) : Disposable {
 
     private fun handleError(e: Exception) {
         val message = when (e) {
-            is RancherApiException -> e.message ?: "Rancher 请求失败"
-            is IOException -> "无法连接 Rancher：${e.message}"
-            else -> "刷新失败：${e.message}"
+            is RancherApiException -> e.message ?: RancherBundle.message("error.requestFailed")
+            is IOException -> RancherBundle.message("error.cannotConnect", e.message.orEmpty())
+            else -> RancherBundle.message("error.refreshFailed", e.message.orEmpty())
         }
         Logger.getInstance(RancherMonitorService::class.java).warn("Rancher refresh failed: $message", e)
         publish(

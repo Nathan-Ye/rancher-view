@@ -24,6 +24,7 @@ import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.Alarm
 import com.nathan.rancherview.api.RancherApiClient
 import com.nathan.rancherview.config.RancherSettings
+import com.nathan.rancherview.util.RancherBundle
 import com.nathan.rancherview.util.RancherTokenStore
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -53,7 +54,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         val virtualFile = reopened ?: LightVirtualFile(
             fileName,
             FileTypeManager.getInstance().getFileTypeByExtension("log"),
-            "# 正在加载日志…"
+            RancherBundle.message("log.loading")
         )
 
         val session = LogSession(sessionKey, podName, virtualFile, settings.clusterId, namespace)
@@ -102,7 +103,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
             // 集群已切换，旧 Pod 名不再有效，停止轮询；命名空间切换不影响已打开的日志
             if (settings.clusterId != clusterId) {
                 stop()
-                appendNotice("# 集群配置已切换，停止刷新该 Pod 日志")
+                appendNotice(RancherBundle.message("log.clusterChanged"))
                 return
             }
             if (!busy.compareAndSet(false, true)) {
@@ -118,9 +119,9 @@ class RancherLogTabService(private val project: Project) : Disposable {
         }
 
         private fun loadContent(settings: RancherSettings): String {
-            if (!settings.isConfigured()) return "# 尚未配置 Rancher 服务"
+            if (!settings.isConfigured()) return RancherBundle.message("log.notConfigured")
             val token = RancherTokenStore.get(settings.url)
-                ?: return "# 尚未配置 Rancher API Token"
+                ?: return RancherBundle.message("log.tokenMissing")
             return try {
                 val log = api.fetchLog(
                     baseUrl = settings.url,
@@ -129,12 +130,15 @@ class RancherLogTabService(private val project: Project) : Disposable {
                     namespace = namespace,
                     podName = podName
                 )
-                val header = "# $podName ($namespace) · 最后 300 行 · 每 5 秒刷新 · ${TIME_FORMAT.format(LocalTime.now())}\n\n"
+                val header = RancherBundle.message(
+                    "log.header",
+                    podName, namespace, TIME_FORMAT.format(LocalTime.now())
+                ) + "\n\n"
                 header + wrapLongLines(log)
             } catch (e: ProcessCanceledException) {
                 throw e
             } catch (e: Exception) {
-                wrapLongLines("# 日志加载失败：${e.message}")
+                wrapLongLines(RancherBundle.message("log.loadFailed", e.message.orEmpty()))
             }
         }
 
