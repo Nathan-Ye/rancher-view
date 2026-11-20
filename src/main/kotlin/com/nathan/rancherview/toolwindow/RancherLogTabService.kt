@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class RancherLogTabService(private val project: Project) : Disposable {
 
     private val sessions = ConcurrentHashMap<String, LogSession>()
+    private val api = RancherApiClient()
 
     fun openLog(podName: String) {
         if (project.isDisposed) return
@@ -57,7 +58,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
             RancherBundle.message("log.loading")
         )
 
-        val session = LogSession(sessionKey, podName, virtualFile, settings.clusterId, namespace)
+        val session = LogSession(sessionKey, podName, virtualFile, settings.url, settings.clusterId, namespace)
         // 挂在服务下统一管理生命周期，Alarm 也随会话一起释放
         Disposer.register(this, session)
         sessions[sessionKey] = session
@@ -74,6 +75,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         private val sessionKey: String,
         private val podName: String,
         val virtualFile: LightVirtualFile,
+        private val baseUrl: String,
         private val clusterId: String,
         private val namespace: String
     ) : Disposable {
@@ -81,11 +83,14 @@ class RancherLogTabService(private val project: Project) : Disposable {
         // 非 Swing 线程的 Alarm 必须挂父 Disposable，否则平台直接抛 IllegalArgumentException
         private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
         private val busy = AtomicBoolean(false)
-        private val api = RancherApiClient()
         private val lifecycleLock = Any()
 
         @Volatile
         private var stopped = false
+
+        private var lastRendered: String? = null
+        private var lastNotice: String? = null
+        private var hasContent = false
 
         fun start() {
             synchronized(lifecycleLock) {
@@ -100,10 +105,10 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 return
             }
             val settings = project.service<RancherSettings>()
-            // 集群已切换，旧 Pod 名不再有效，停止轮询；命名空间切换不影响已打开的日志
-            if (settings.clusterId != clusterId) {
+            // 连接目标已切换，旧 Pod 名不再有效，停止轮询；命名空间切换不影响已打开的日志
+            if (settings.url != baseUrl || settings.clusterId != clusterId) {
                 stop()
-                appendNotice(RancherBundle.message("log.clusterChanged"))
+                appendNotice(RancherBundle.message("log.configChanged"))
                 return
             }
             if (!busy.compareAndSet(false, true)) {
@@ -111,17 +116,44 @@ class RancherLogTabService(private val project: Project) : Disposable {
                 return
             }
             try {
-                setText(loadContent(settings))
+                render(settings)
             } finally {
                 busy.set(false)
                 reschedule()
             }
         }
 
-        private fun loadContent(settings: RancherSettings): String {
-            if (!settings.isConfigured()) return RancherBundle.message("log.notConfigured")
+        private fun render(settings: RancherSettings) {
+            val (content, notice) = loadResult(settings)
+            if (content != null) {
+                lastNotice = null
+                if (content != lastRendered) {
+                    lastRendered = content
+                    setText(content)
+                }
+                hasContent = true
+                return
+            }
+            if (notice == null) return
+            if (!hasContent) {
+                if (notice != lastRendered) {
+                    lastRendered = notice
+                    setText(notice)
+                }
+            } else if (notice != lastNotice) {
+                // 拉取失败时保留上一次的日志，只追加一条提示，避免整页被错误信息覆盖
+                lastNotice = notice
+                lastRendered = null
+                appendNotice(notice)
+            }
+        }
+
+        private fun loadResult(settings: RancherSettings): Pair<String?, String?> {
+            if (!settings.isConfigured()) {
+                return null to RancherBundle.message("log.notConfigured")
+            }
             val token = RancherTokenStore.get(settings.url)
-                ?: return RancherBundle.message("log.tokenMissing")
+                ?: return null to RancherBundle.message("log.tokenMissing")
             return try {
                 val log = api.fetchLog(
                     baseUrl = settings.url,
@@ -134,11 +166,11 @@ class RancherLogTabService(private val project: Project) : Disposable {
                     "log.header",
                     podName, namespace, TIME_FORMAT.format(LocalTime.now())
                 ) + "\n\n"
-                header + wrapLongLines(log)
+                (header + wrapLongLines(log)) to null
             } catch (e: ProcessCanceledException) {
                 throw e
             } catch (e: Exception) {
-                wrapLongLines(RancherBundle.message("log.loadFailed", e.message.orEmpty()))
+                null to wrapLongLines(RancherBundle.message("log.loadFailed", e.message.orEmpty()))
             }
         }
 

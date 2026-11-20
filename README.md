@@ -6,11 +6,11 @@ View the status of every Deployment and the pod logs in any Rancher namespace di
 
 ## Features
 
-- **Namespace switcher**: pick any namespace from the dropdown at the top-left of the tool window (defaults to `test`); the selection is remembered. The list shows ready / updated / image / pod count / age for every Deployment in that namespace.
+- **Namespace switcher**: pick any namespace from the dropdown at the top-left of the tool window (defaults to `default`); the selection is remembered. The list shows ready / updated / image / pod count / age for every Deployment in that namespace.
 - **Linked panes**: service list on top, service summary and pod table below; the splitter ratio is draggable and persisted (default 7:3).
 - **Name filter**: filter as you type; the filter text and selected row survive refreshes.
 - **Pod logs**: double-click a pod to open its log in an editor tab — auto-wrapped, level-colored (ERROR red / WARN amber / stack traces red / timestamps gray) and refreshed every 5 seconds. Scrolling up does not force a jump to the bottom, and log tabs are isolated per namespace.
-- **Status bar summary**: e.g. `● test 66/68`, or `✖ test 64/68 · 2 failed` when something fails; click to open the tool window.
+- **Status bar summary**: e.g. `● default 66/68`, or `✖ default 64/68 · 2 failed` when something fails; click to open the tool window.
 - **Failure notifications**: an error notification is shown only after a service stays failed for two consecutive refreshes. Successful rollouts are not announced, and terminating pods being replaced by a rollout are not counted as failures.
 - **Test connection**: validate URL / cluster / namespace / token with one click in settings.
 - **Pause when closed** (optional): stop polling when the tool window is closed; resumes automatically within 1 second after reopening.
@@ -19,11 +19,18 @@ View the status of every Deployment and the pod logs in any Rancher namespace di
 ## Requirements
 
 - IntelliJ IDEA 2024.2+ (`since-build` 242)
-- Network access to your Rancher endpoint (defaults to `https://ds-oms.gree.com:8888`, editable in settings)
+- Network access to your Rancher endpoint
 
 ## Install
 
-1. Download `rancher-view-2.1.0.zip`
+From JetBrains Marketplace:
+
+1. IDEA → Settings → Plugins → **Marketplace**, search for **Rancher View**
+2. Install and restart the IDE
+
+From a local archive:
+
+1. Download `rancher-view-2.1.1.zip`
 2. IDEA → Settings → Plugins → ⚙ → **Install Plugin from Disk…**, select the zip
 3. Restart the IDE
 
@@ -34,11 +41,11 @@ Settings → Tools → **Rancher Service** (shown as “Rancher 服务” when C
 | Option | Description |
 | --- | --- |
 | Language | English / 中文（简体）; stored globally and shared by all projects, default English |
-| Rancher URL | Paste the full dashboard URL; cluster and namespace are parsed when the field loses focus |
+| Rancher URL | Required, no default; paste the server address or a full dashboard URL (cluster / namespace are parsed on focus loss). Trailing `/v3` is removed; URLs with `/dashboard` are rejected |
 | Cluster ID | e.g. `c-m-zw299nxw` |
-| Default namespace | e.g. `test`; can be switched anytime from the tool window dropdown. Empty means `test` |
+| Default namespace | Empty means `default`; can be switched anytime from the tool window dropdown |
 | Refresh interval (s) | 3–300, default 10 |
-| Notify when a deployment fails | Per service; requires two consecutive failed refreshes, successful rollouts are not announced |
+| Notify when a deployment fails | Per deployment; requires two consecutive failed refreshes, successful rollouts are not announced |
 | Pause polling when the tool window is closed | Off by default |
 | API Token | Create it in Rancher from the avatar menu → Account & API Keys; grant access to the current cluster only |
 
@@ -47,7 +54,7 @@ The token is stored in the IDE credential store (PasswordSafe), keyed by Rancher
 ## Usage
 
 1. Open the **Rancher View** tool window from the right sidebar
-2. Pick a namespace from the dropdown (defaults to `test`); the list shows every service in it, and the filter box searches by name
+2. Pick a namespace from the dropdown (defaults to `default`); the list shows every service in it, and the filter box searches by name
 3. Click a row to see pod details below; double-click a pod to open its log tab
 4. The **Refresh** button pulls data immediately (and reloads the namespace list); the status bar always shows the aggregate status of the current namespace
 
@@ -56,7 +63,7 @@ The token is stored in the IDE credential store (PasswordSafe), keyed by Rancher
 ```bash
 # JDK 21
 ./gradlew buildPlugin
-# Output: build/distributions/rancher-view-2.1.0.zip
+# Output: build/distributions/rancher-view-2.1.1.zip
 ```
 
 Run a sandbox IDE for development:
@@ -64,6 +71,20 @@ Run a sandbox IDE for development:
 ```bash
 ./gradlew runIde
 ```
+
+## Release
+
+```bash
+# Sign (optional, recommended): requires CERTIFICATE_CHAIN / PRIVATE_KEY / PRIVATE_KEY_PASSWORD
+./gradlew signPlugin
+
+# Publish to JetBrains Marketplace: requires PUBLISH_TOKEN
+./gradlew publishPlugin
+```
+
+## License
+
+MIT. Rancher View is an independent project and is not affiliated with, endorsed by, or sponsored by SUSE or Rancher Labs.
 
 ## Project structure
 

@@ -20,6 +20,13 @@ out/
 # Local config / secrets
 local.properties
 *.log
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
 
 # OS
 .DS_Store

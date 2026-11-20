@@ -59,7 +59,19 @@ class RancherMonitorService(private val project: Project) : Disposable {
     @Volatile
     private var refreshQueued = false
 
+    // Apply 后自增，用于丢弃旧配置下还在途中的响应
+    @Volatile
+    private var generation = 0
+
+    @Volatile
+    private var lastUrl = ""
+
+    @Volatile
+    private var lastClusterId = ""
+
     init {
+        lastUrl = settings.url
+        lastClusterId = settings.clusterId
         ApplicationManager.getApplication().invokeLater {
             if (!disposed) schedule(0)
         }
@@ -116,12 +128,24 @@ class RancherMonitorService(private val project: Project) : Disposable {
     }
 
     fun restartPolling() {
+        generation++
         alarm.cancelAllRequests()
         refreshQueued = false
         failureStreaks.clear()
-        namespacesDirty = true
+        val settings = settings
+        val targetChanged = settings.url != lastUrl || settings.clusterId != lastClusterId
+        lastUrl = settings.url
+        lastClusterId = settings.clusterId
+        if (targetChanged) {
+            namespaces = emptyList()
+            namespacesDirty = true
+        }
+        // 只是调间隔/通知/语言时保留现有表格，避免每次 Apply 都闪一下
+        val keepSnapshot = !targetChanged && state.namespace == settings.namespace
         publish(
             State(
+                snapshot = if (keepSnapshot) state.snapshot else null,
+                error = if (keepSnapshot) state.error else null,
                 configured = settings.isConfigured(),
                 namespaces = namespaces,
                 namespace = settings.namespace
@@ -183,13 +207,22 @@ class RancherMonitorService(private val project: Project) : Disposable {
             return
         }
         val namespace = settings.namespace
+        val gen = generation
         publish(state.copy(configured = true, loading = true, namespaces = namespaces, namespace = namespace))
         try {
             if (namespacesDirty) {
-                val fetched = runCatching { api.fetchNamespaces(settings.url, token, settings.clusterId) }.getOrNull()
-                if (!fetched.isNullOrEmpty()) {
-                    namespaces = fetched.sorted()
-                    namespacesDirty = false
+                try {
+                    val fetched = api.fetchNamespaces(settings.url, token, settings.clusterId)
+                    if (fetched.isNotEmpty()) {
+                        namespaces = fetched.sorted()
+                        namespacesDirty = false
+                    }
+                } catch (e: ProcessCanceledException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 列表失败不阻断部署状态展示，下一轮继续重试
+                    Logger.getInstance(RancherMonitorService::class.java)
+                        .warn("Failed to load Rancher namespaces: ${e.message}", e)
                 }
             }
             val snapshot = api.fetchNamespace(
@@ -198,13 +231,13 @@ class RancherMonitorService(private val project: Project) : Disposable {
                 clusterId = settings.clusterId,
                 namespace = namespace
             )
-            // 请求期间项目可能已关闭，或者用户已切换命名空间，此时丢弃旧结果
-            if (isAborted() || namespace != settings.namespace) return
+            // 请求期间项目可能已关闭、用户切换了命名空间，或配置已被 Apply 改动，此时丢弃旧结果
+            if (isAborted() || gen != generation || namespace != settings.namespace) return
             handleSuccess(snapshot, settings.notificationsEnabled)
         } catch (e: ProcessCanceledException) {
             throw e
         } catch (e: Exception) {
-            if (isAborted() || namespace != settings.namespace) return
+            if (isAborted() || gen != generation || namespace != settings.namespace) return
             handleError(e)
         } finally {
             busy.set(false)
@@ -212,7 +245,7 @@ class RancherMonitorService(private val project: Project) : Disposable {
                 if (refreshQueued) {
                     refreshQueued = false
                     schedule(0)
-                } else {
+                } else if (gen == generation) {
                     scheduleNext(settings)
                 }
             }

@@ -65,7 +65,7 @@ class RancherStatusBarWidget(private val project: Project) :
         val snapshot = state.snapshot
 
         text = when {
-            !state.configured -> "● $name ${RancherBundle.message("statusbar.notConfigured")}"
+            !state.configured -> "● Rancher ${RancherBundle.message("statusbar.notConfigured")}"
             state.error != null && snapshot == null -> "✖ $name ${RancherBundle.message("statusbar.connectionFailed")}"
             snapshot == null -> "… $name"
             snapshot.failedCount > 0 ->

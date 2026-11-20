@@ -2,7 +2,7 @@
 <idea-plugin require-restart="false">
     <id>com.nathan.rancherview</id>
     <name>Rancher View</name>
-    <vendor email="nathanye404@gmail.com">Nathan Ye</vendor>
+    <vendor email="nathanye404@gmail.com" url="https://github.com/Nathan-Ye/rancher-view">Nathan Ye</vendor>
 
     <description><![CDATA[
         View Rancher deployment status and pod logs directly inside IntelliJ IDEA, one Rancher workload per project.
@@ -12,11 +12,11 @@
         <h3>Features</h3>
         <ul>
             <li>Per-project Rancher configuration (paste the dashboard URL to auto-fill)</li>
-            <li>Namespace dropdown in the tool window (defaults to test, selection remembered)</li>
+            <li>Namespace dropdown in the tool window (defaults to default, selection remembered)</li>
             <li>Rollout summary: ready/updated/available replicas and current image</li>
             <li>Pod table with status, restarts, age, node and image</li>
             <li>Pod logs in a follow-refreshing editor tab</li>
-            <li>Status bar widget and rollout completion/failure notifications</li>
+            <li>Status bar widget and failure notifications</li>
         </ul>
 
         <h3>Requirements</h3>
@@ -25,14 +25,17 @@
             <li>Rancher API token (Rancher → Account &amp; API Keys)</li>
         </ul>
 
+        <p>Rancher View is an independent, unofficial project and is not affiliated with,
+        endorsed by, or sponsored by SUSE or Rancher Labs. Licensed under the MIT License.</p>
+
         <h3>功能特点</h3>
         <ul>
             <li>项目级配置：每个项目绑定一个 Rancher 集群，支持粘贴 dashboard 地址自动解析</li>
-            <li>命名空间下拉切换：工具窗左上角选择，默认 test 并记住上次选择</li>
+            <li>命名空间下拉切换：工具窗左上角选择，默认 default 并记住上次选择</li>
             <li>发布摘要：就绪/更新/可用副本与当前镜像版本</li>
             <li>Pod 列表：状态、重启次数、运行时长、节点、镜像</li>
             <li>双击 Pod 在编辑器打开日志，自动跟随刷新</li>
-            <li>状态栏常驻显示就绪数，发布完成/异常时弹通知</li>
+            <li>状态栏常驻显示就绪数，发布异常时弹通知（连续两次确认，避免滚动发布误报）</li>
         </ul>
 
         <h3>运行环境</h3>
@@ -40,9 +43,22 @@
             <li>IntelliJ IDEA 2024.2 或更高版本</li>
             <li>Rancher API Token（Rancher 右上角头像 → Account &amp; API Keys）</li>
         </ul>
+
+        <p>本项目为独立第三方插件，与 SUSE / Rancher Labs 无隶属或背书关系，基于 MIT 协议开源。</p>
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>2.1.1</h3>
+        <ul>
+            <li>Connections follow the IDE proxy settings and trusted certificates; Rancher URLs are normalized (trailing /v3 removed) and validated.</li>
+            <li>Failed log refreshes keep the previous content and append a notice instead of replacing the whole tab; log tabs stop when the Rancher URL or cluster changes.</li>
+            <li>Tokens are saved trimmed, cleared when the URL changes, and no longer deleted when the URL is changed and reverted; stale responses after Apply are discarded.</li>
+            <li>Default namespace is now default; the namespace list is reloaded only when the cluster or URL changes.</li>
+            <li>网络请求跟随 IDE 的代理与受信证书配置，Rancher 地址会自动归一化（去掉结尾 /v3）并校验。</li>
+            <li>日志刷新失败时保留上一次内容并追加提示，不再整页覆盖；地址或集群变更后日志 Tab 自动停止刷新。</li>
+            <li>Token 保存时去除首尾空格，改地址时自动清空，换地址又改回时不会误删；Apply 后丢弃旧配置的在途响应。</li>
+            <li>默认命名空间改为 default；仅在集群或地址变化时重新加载命名空间列表。</li>
+        </ul>
         <h3>2.1.0</h3>
         <ul>
             <li>English and Chinese UI; the language is configurable in settings (English by default).</li>
@@ -72,7 +88,7 @@
 
         <projectConfigurable instance="com.nathan.rancherview.config.RancherSettingsConfigurable"
                              id="com.nathan.rancherview.settings"
-                             displayName="Rancher"/>
+                             displayName="Rancher Service"/>
 
         <projectService serviceImplementation="com.nathan.rancherview.config.RancherSettings"/>
         <projectService serviceImplementation="com.nathan.rancherview.service.RancherMonitorService"/>

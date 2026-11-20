@@ -5,12 +5,13 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.nathan.rancherview.util.RancherUrlParser
 
 @State(name = "RancherViewSettings", storages = [Storage("rancherView.xml")])
 class RancherSettings : PersistentStateComponent<RancherSettings.State> {
 
     data class State(
-        var rancherUrl: String = "https://ds-oms.gree.com:8888",
+        var rancherUrl: String = "",
         var clusterId: String = "",
         var namespace: String = DEFAULT_NAMESPACE,
         var refreshSeconds: Int = 10,
@@ -27,7 +28,11 @@ class RancherSettings : PersistentStateComponent<RancherSettings.State> {
         myState = state
     }
 
-    val url: String get() = myState.rancherUrl.trim().trimEnd('/')
+    val url: String get() {
+        val raw = myState.rancherUrl.trim()
+        if (raw.isEmpty()) return ""
+        return RancherUrlParser.normalizeBaseUrl(raw) ?: raw.trimEnd('/')
+    }
     val clusterId: String get() = myState.clusterId.trim()
     val namespace: String get() = myState.namespace.trim().ifEmpty { DEFAULT_NAMESPACE }
     val refreshSeconds: Int get() = myState.refreshSeconds.coerceIn(3, 300)
@@ -41,7 +46,7 @@ class RancherSettings : PersistentStateComponent<RancherSettings.State> {
     }
 
     companion object {
-        const val DEFAULT_NAMESPACE = "test"
+        const val DEFAULT_NAMESPACE = "default"
 
         fun getInstance(project: Project): RancherSettings = project.service()
     }

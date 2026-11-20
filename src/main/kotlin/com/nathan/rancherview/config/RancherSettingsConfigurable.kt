@@ -4,9 +4,11 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.nathan.rancherview.api.RancherApiClient
+import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
@@ -26,6 +28,7 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
+import javax.swing.event.DocumentEvent
 
 class RancherSettingsConfigurable(private val project: Project) : Configurable {
 
@@ -43,6 +46,8 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     private var testResult: JBLabel? = null
 
     private var initialToken: String? = null
+    private var tokenEdited = false
+    private var programmaticTokenChange = false
     private var initialLanguage = RancherBundle.language()
     private var initial = RancherSettings.State()
 
@@ -51,7 +56,7 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     override fun createComponent(): JComponent {
         val state = settings.state
         initial = state.copy()
-        initialToken = RancherTokenStore.get(state.rancherUrl.trim().trimEnd('/'))
+        initialToken = settings.url.takeIf { it.isNotEmpty() }?.let { RancherTokenStore.get(it) }
         initialLanguage = RancherBundle.language()
 
         languageCombo = ComboBox<String>().apply {
@@ -64,6 +69,12 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
             toolTipText = RancherBundle.message("settings.urlTooltip")
             addFocusListener(object : FocusAdapter() {
                 override fun focusLost(e: FocusEvent) = applyDashboardUrl()
+            })
+            document.addDocumentListener(object : DocumentAdapter() {
+                override fun textChanged(e: DocumentEvent) {
+                    // Token 按地址共享，地址一改旧 Token 就对不上了，直接清空避免误用
+                    if (normalizedUrl(urlField?.text) != normalizedUrl(initial.rancherUrl)) clearTokenField()
+                }
             })
         }
         clusterField = JBTextField(state.clusterId)
@@ -81,6 +92,11 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         tokenField = JBPasswordField().apply {
             text = initialToken.orEmpty()
             toolTipText = RancherBundle.message("settings.tokenTooltip")
+            document.addDocumentListener(object : DocumentAdapter() {
+                override fun textChanged(e: DocumentEvent) {
+                    if (!programmaticTokenChange) tokenEdited = true
+                }
+            })
         }
         testResult = JBLabel()
         testButton = JButton(RancherBundle.message("settings.testButton")).apply {
@@ -112,11 +128,11 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     }
 
     override fun isModified(): Boolean {
-        val token = String(tokenField?.password ?: charArrayOf())
+        val token = String(tokenField?.password ?: charArrayOf()).trim()
         return selectedLanguage() != initialLanguage ||
-            urlField?.text?.trim() != initial.rancherUrl ||
-            clusterField?.text?.trim() != initial.clusterId ||
-            namespaceField?.text?.trim() != initial.namespace ||
+            urlField?.text?.trim() != initial.rancherUrl.trim() ||
+            clusterField?.text?.trim() != initial.clusterId.trim() ||
+            namespaceField?.text?.trim() != initial.namespace.trim() ||
             ((refreshSpinner?.value as? Number)?.toInt() ?: initial.refreshSeconds) != initial.refreshSeconds ||
             (notificationsCheck?.isSelected ?: true) != initial.notificationsEnabled ||
             (pauseCheck?.isSelected ?: false) != initial.pauseWhenClosed ||
@@ -124,8 +140,15 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
     }
 
     override fun apply() {
+        val rawUrl = urlField?.text?.trim().orEmpty()
+        val url = if (rawUrl.isEmpty()) {
+            ""
+        } else {
+            RancherUrlParser.normalizeBaseUrl(rawUrl)
+                ?: throw ConfigurationException(RancherBundle.message("settings.invalidUrl"))
+        }
         val newState = initial.copy(
-            rancherUrl = urlField?.text?.trim().orEmpty(),
+            rancherUrl = url,
             clusterId = clusterField?.text?.trim().orEmpty(),
             namespace = namespaceField?.text?.trim().orEmpty(),
             refreshSeconds = ((refreshSpinner?.value as? Number)?.toInt() ?: 10),
@@ -134,14 +157,18 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         )
         settings.update(newState)
 
-        val token = String(tokenField?.password ?: charArrayOf())
-        val previousUrl = initial.rancherUrl.trim().trimEnd('/')
-        val newUrl = newState.rancherUrl.trimEnd('/')
-        if (previousUrl.isNotEmpty() && previousUrl != newUrl) {
-            // 地址更换后旧地址下的 Token 不再有任何用途，避免凭据库里一直残留
-            RancherTokenStore.set(previousUrl, null)
+        val token = String(tokenField?.password ?: charArrayOf()).trim()
+        val previousUrl = normalizedUrl(initial.rancherUrl)
+        // 凭据按地址全局共享：换地址时既不删除旧地址的 Token，也不把旧 Token 写到新地址上
+        RancherTokenStore.set("", null)
+        if (url.isNotEmpty()) {
+            if (url == previousUrl) {
+                // 地址没变：只有用户主动清空时才删除，避免换地址又改回来后把旧 Token 删掉
+                if (token.isNotEmpty() || tokenEdited) RancherTokenStore.set(url, token)
+            } else if (token.isNotEmpty()) {
+                RancherTokenStore.set(url, token)
+            }
         }
-        RancherTokenStore.set(newUrl, token)
 
         val language = selectedLanguage()
         if (language != initialLanguage) {
@@ -150,7 +177,12 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         }
 
         initial = newState.copy()
-        initialToken = token
+        urlField?.text = url
+        clusterField?.text = newState.clusterId
+        namespaceField?.text = newState.namespace
+        initialToken = url.takeIf { it.isNotEmpty() }?.let { RancherTokenStore.get(it) }
+        tokenField?.text = initialToken.orEmpty()
+        tokenEdited = false
         project.service<RancherMonitorService>().restartPolling()
     }
 
@@ -165,8 +197,9 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         refreshSpinner?.value = state.refreshSeconds.coerceIn(3, 300)
         notificationsCheck?.isSelected = state.notificationsEnabled
         pauseCheck?.isSelected = state.pauseWhenClosed
-        initialToken = RancherTokenStore.get(state.rancherUrl.trim().trimEnd('/'))
+        initialToken = settings.url.takeIf { it.isNotEmpty() }?.let { RancherTokenStore.get(it) }
         tokenField?.text = initialToken.orEmpty()
+        tokenEdited = false
     }
 
     override fun disposeUIResources() {
@@ -180,22 +213,34 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
         tokenField = null
         testButton = null
         testResult = null
+        initialToken = null
+        tokenEdited = false
+        programmaticTokenChange = false
     }
 
     private fun selectedLanguage(): String =
         if (languageCombo?.selectedItem == LANGUAGE_CHINESE) RancherBundle.CHINESE else RancherBundle.ENGLISH
 
     private fun testConnection() {
-        val url = urlField?.text?.trim()?.trimEnd('/').orEmpty()
+        val rawUrl = urlField?.text?.trim().orEmpty()
         val clusterId = clusterField?.text?.trim().orEmpty()
         val namespace = namespaceField?.text?.trim().orEmpty()
             .ifEmpty { RancherSettings.DEFAULT_NAMESPACE }
-        val typedToken = String(tokenField?.password ?: charArrayOf()).trim()
-        val token = typedToken.ifEmpty { initialToken.orEmpty() }
 
-        if (url.isEmpty() || clusterId.isEmpty()) {
+        if (rawUrl.isEmpty() || clusterId.isEmpty()) {
             showTestResult(RancherBundle.message("settings.missingUrl"), success = false)
             return
+        }
+        val url = RancherUrlParser.normalizeBaseUrl(rawUrl)
+        if (url == null) {
+            showTestResult(RancherBundle.message("settings.invalidUrl"), success = false)
+            return
+        }
+
+        val typedToken = String(tokenField?.password ?: charArrayOf()).trim()
+        // 地址换了就不能拿旧地址的 Token 去测，否则测通的可能是另一个环境
+        val token = typedToken.ifEmpty {
+            if (url == normalizedUrl(initial.rancherUrl)) initialToken.orEmpty() else ""
         }
         if (token.isEmpty()) {
             showTestResult(RancherBundle.message("settings.missingToken"), success = false)
@@ -231,6 +276,23 @@ class RancherSettingsConfigurable(private val project: Project) : Configurable {
 
     private fun escapeHtml(text: String): String =
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    private fun normalizedUrl(text: String?): String =
+        RancherUrlParser.normalizeBaseUrl(text.orEmpty())
+            ?: text.orEmpty().trim().trimEnd('/')
+
+    private fun clearTokenField() {
+        val field = tokenField ?: return
+        if (field.password.isEmpty()) return
+        programmaticTokenChange = true
+        try {
+            field.text = ""
+        } finally {
+            programmaticTokenChange = false
+        }
+        // 清空是换地址导致的，不算用户主动删除，避免换回原地址时把旧 Token 删掉
+        tokenEdited = false
+    }
 
     private fun applyDashboardUrl() {
         val target = RancherUrlParser.parse(urlField?.text.orEmpty()) ?: return

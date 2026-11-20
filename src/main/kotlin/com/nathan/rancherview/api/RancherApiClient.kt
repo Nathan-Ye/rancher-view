@@ -4,10 +4,14 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
+import com.intellij.util.net.HttpConfigurable
+import com.intellij.util.net.ssl.CertificateManager
+import com.intellij.util.proxy.CommonProxy
 import com.nathan.rancherview.model.NamespaceSnapshot
 import com.nathan.rancherview.model.PodInfo
 import com.nathan.rancherview.model.ServiceInfo
 import com.nathan.rancherview.util.RancherBundle
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.Duration
@@ -18,11 +22,7 @@ class RancherApiException(message: String) : Exception(message)
 
 class RancherApiClient {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val client = buildClient()
 
     fun fetchNamespaces(
         baseUrl: String,
@@ -254,5 +254,36 @@ class RancherApiClient {
             "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "InvalidImageName",
             "CreateContainerError", "RunContainerError", "ContainerCannotRun", "OOMKilled", "Error"
         )
+
+        private fun buildClient(): OkHttpClient {
+            val builder = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .callTimeout(30, TimeUnit.SECONDS)
+
+            // 跟随 IDE 的代理设置（含 PAC 与排除规则），代理需要认证时补上凭据
+            runCatching {
+                builder.proxySelector(CommonProxy.getInstance())
+                builder.proxyAuthenticator { _, response ->
+                    val http = HttpConfigurable.getInstance()
+                    val login = http.proxyLogin
+                    if (login.isNullOrBlank() || response.request.header("Proxy-Authorization") != null) {
+                        null
+                    } else {
+                        response.request.newBuilder()
+                            .header("Proxy-Authorization", Credentials.basic(login, http.plainProxyPassword.orEmpty()))
+                            .build()
+                    }
+                }
+            }
+
+            // 信任 IDE 证书库里的证书，用户手动信任过的自签名证书也能直接访问
+            runCatching {
+                val certificates = CertificateManager.getInstance()
+                builder.sslSocketFactory(certificates.sslContext.socketFactory, certificates.trustManager)
+            }
+
+            return builder.build()
+        }
     }
 }
