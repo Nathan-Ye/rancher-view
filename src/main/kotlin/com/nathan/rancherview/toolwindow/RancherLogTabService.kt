@@ -44,7 +44,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         val manager = FileEditorManager.getInstance(project)
         val existing = sessions[sessionKey]
         if (existing != null && manager.isFileOpen(existing.virtualFile)) {
-            manager.openTextEditor(OpenFileDescriptor(project, existing.virtualFile), true)
+            OpenFileDescriptor(project, existing.virtualFile).navigate(true)
             return
         }
 
@@ -62,7 +62,7 @@ class RancherLogTabService(private val project: Project) : Disposable {
         // 挂在服务下统一管理生命周期，Alarm 也随会话一起释放
         Disposer.register(this, session)
         sessions[sessionKey] = session
-        manager.openTextEditor(OpenFileDescriptor(project, virtualFile), true)
+        OpenFileDescriptor(project, virtualFile).navigate(true)
         session.start()
     }
 
